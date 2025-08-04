@@ -8,5 +8,11 @@ export async function getUserHistory(userAddress: string) {
     const errorData = await res.json()
     throw new Error(errorData.error || "Failed to fetch history from backend")
   }
-  return await res.json()
+  const data = await res.json()
+  // Extract the 'orders' array from the response
+  if (data && Array.isArray(data.orders)) {
+    return data.orders
+  } else {
+    throw new Error("Invalid response format: 'orders' array not found.")
+  }
 }
