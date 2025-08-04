@@ -7,17 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { toast } from "sonner"
 import { CONTRACT_ABI, CONTRACT_ADDRESS } from "@/config/contract"
-import {
-  createPublicClient,
-  http,
-  decodeFunctionData,
-  type Hex,
-  formatUnits,
-  decodeEventLog,
-  stringToBytes, // Import stringToBytes
-  pad, // Import pad
-  toHex, // Import toHex for display
-} from "viem"
+import { createPublicClient, http, decodeFunctionData, type Hex, decodeEventLog, stringToBytes, pad, toHex } from "viem"
 import { base } from "viem/chains"
 import { useWriteContract, useWaitForTransactionReceipt } from "wagmi"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
@@ -35,16 +25,24 @@ interface DecodedTxnData {
   args: any[]
 }
 
+// Updated interface to match your backend's 'orders' structure
 interface TransactionHistoryItem {
-  hash: string
-  from: string
-  to: string
-  value: string
-  timestamp: string
-  decodedData?: DecodedTxnData
-  logicalOrderId?: string // Client-side derived sequential order ID for createOrder txns
-  actualOrderId?: string // Actual on-chain order ID from event decoding
-  requestId?: string // Request ID from createOrder input (original string)
+  _id: string
+  requestId: string
+  userAddress: string
+  transactionHash: string
+  serviceType: string
+  serviceID: string
+  customerIdentifier: string
+  amountNaira: number
+  cryptoUsed: number // This is the value in decimal form
+  cryptoSymbol: string
+  onChainStatus: string
+  vtpassStatus: string
+  createdAt: string // ISO string from backend
+  updatedAt: string
+  logicalOrderId?: string // Client-side derived sequential order ID
+  // decodedData is not available from this backend response
 }
 
 export default function ManageOrdersPage() {
@@ -57,8 +55,8 @@ export default function ManageOrdersPage() {
   const [historyAddress, setHistoryAddress] = useState<string>("")
 
   const [requestIdToDecode, setRequestIdToDecode] = useState<string>("")
-  const [decodedRequestIdBytes32, setDecodedRequestIdBytes32] = useState<Hex | null>(null) // Changed to Hex
-  const [foundTxnByRequestId, setFoundTxnByRequestId] = useState<TransactionHistoryItem | null>(null)
+  const [decodedRequestIdBytes32, setDecodedRequestIdBytes32] = useState<Hex | null>(null)
+  const [foundTxnByRequestId, setFoundTxnByRequestId] = useState<any | null>(null) // Adjusted type for simulated data
   const [isSearchingRequestId, setIsSearchingRequestId] = useState(false)
 
   const { data: hash, writeContract, isPending: isWriting, error: writeError } = useWriteContract()
@@ -198,57 +196,20 @@ export default function ManageOrdersPage() {
     setIsFetchingHistory(true)
     setTransactionHistory([])
     try {
-      const rawData = await getUserHistory(historyAddress)
-      let createOrderCounter = 0
+      const rawData: TransactionHistoryItem[] = await getUserHistory(historyAddress) // rawData is now the 'orders' array
+      let logicalOrderCounter = 0
 
-      const historyPromises = rawData.map(async (tx: any) => {
-        let decoded: DecodedTxnData | undefined
-        let logicalOrderId: string | undefined = undefined // Client-side derived sequential order ID
-        let requestIdString: string | undefined = undefined // Original string requestId
-
-        try {
-          const { functionName, args } = decodeFunctionData({
-            abi: CONTRACT_ABI,
-            data: tx.input,
-          })
-          decoded = { functionName, args }
-
-          // If it's a createOrder transaction, assign a logical order ID and extract requestId
-          if (functionName === "createOrder") {
-            createOrderCounter++
-            logicalOrderId = createOrderCounter.toString()
-            if (args && args.length > 0) {
-              // Assuming requestId is the first arg and is bytes32
-              const requestIdBytes32 = args[0] as Hex
-              // Attempt to convert bytes32 back to string for display if it's valid UTF-8
-              try {
-                // Remove null padding before converting to string
-                const unpaddedBytes = requestIdBytes32.replace(/00+$/, "") // Remove trailing zeros
-                requestIdString = new TextDecoder().decode(stringToBytes(unpaddedBytes))
-              } catch (e) {
-                requestIdString = requestIdBytes32 // Fallback to raw hex if decoding fails
-              }
-            }
-          }
-        } catch (decodeError) {
-          // Ignore decoding errors for non-contract transactions or unknown functions
-          decoded = undefined
-        }
-
+      const processedHistory = rawData.map((tx) => {
+        logicalOrderCounter++
         return {
-          hash: tx.hash,
-          from: tx.from,
-          to: tx.to,
-          value: formatUnits(BigInt(tx.value), 18), // Assuming ETH value for transaction value
-          timestamp: new Date(tx.timestamp * 1000).toLocaleString(),
-          decodedData: decoded,
-          logicalOrderId: logicalOrderId,
-          requestId: requestIdString, // Store the original string or hex
+          ...tx,
+          logicalOrderId: logicalOrderCounter.toString(), // Assign sequential logical ID
+          // No decodedData as raw input is not provided by this backend
+          // No need for BigInt or formatUnits for cryptoUsed as it's already a number
         }
       })
 
-      const resolvedHistory = await Promise.all(historyPromises)
-      setTransactionHistory(resolvedHistory)
+      setTransactionHistory(processedHistory)
       toast.success("Transaction history fetched successfully!")
     } catch (error: any) {
       console.error("Error fetching transaction history:", error)
@@ -282,7 +243,7 @@ export default function ManageOrdersPage() {
       if (!allCreateOrdersResponse.ok) {
         throw new Error("Failed to fetch all create orders for search")
       }
-      const allCreateOrders: TransactionHistoryItem[] = await allCreateOrdersResponse.json()
+      const allCreateOrders: any[] = await allCreateOrdersResponse.json() // Use 'any' for now due to mixed types
 
       const foundTx = allCreateOrders.find(
         (tx) =>
@@ -519,7 +480,7 @@ export default function ManageOrdersPage() {
         <CardHeader>
           <CardTitle>Transaction History (User Specific)</CardTitle>
           <CardDescription>
-            Displays transactions for a specific user, with logical Order IDs for 'createOrder' calls.
+            Displays application-level orders for a specific user, with logical Order IDs.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -548,76 +509,65 @@ export default function ManageOrdersPage() {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Hash</TableHead>
-                      <TableHead>From</TableHead>
-                      <TableHead>To</TableHead>
-                      <TableHead>Value (ETH)</TableHead>
-                      <TableHead>Timestamp</TableHead>
-                      <TableHead>Decoded Function</TableHead>
-                      <TableHead>Order ID (Logical)</TableHead>
+                      <TableHead>Logical Order ID</TableHead>
                       <TableHead>Request ID</TableHead>
+                      <TableHead>Txn Hash</TableHead>
+                      <TableHead>User Address</TableHead>
+                      <TableHead>Crypto Used</TableHead>
+                      <TableHead>Symbol</TableHead>
+                      <TableHead>Created At</TableHead>
+                      <TableHead>Status</TableHead>
                       <TableHead>Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     <TooltipProvider delayDuration={0}>
                       {transactionHistory.map((tx) => (
-                        <TableRow key={tx.hash}>
+                        <TableRow key={tx._id}>
+                          <TableCell className="font-semibold">{tx.logicalOrderId}</TableCell>
+                          <TableCell>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span className="font-mono text-xs cursor-help">
+                                  {tx.requestId.length > 10 ? `${tx.requestId.slice(0, 10)}...` : tx.requestId}
+                                </span>
+                              </TooltipTrigger>
+                              <TooltipContent>{tx.requestId}</TooltipContent>
+                            </Tooltip>
+                          </TableCell>
                           <TableCell className="font-medium">
                             <a
-                              href={`https://basescan.org/tx/${tx.hash}`}
+                              href={`https://basescan.org/tx/${tx.transactionHash}`}
                               target="_blank"
                               rel="noopener noreferrer"
                               className="underline"
                             >
-                              {tx.hash.slice(0, 6)}...{tx.hash.slice(-4)}
+                              {tx.transactionHash.slice(0, 6)}...{tx.transactionHash.slice(-4)}
                             </a>
                           </TableCell>
                           <TableCell>
                             <a
-                              href={`https://basescan.org/address/${tx.from}`}
+                              href={`https://basescan.org/address/${tx.userAddress}`}
                               target="_blank"
                               rel="noopener noreferrer"
                               className="underline"
                             >
-                              {tx.from.slice(0, 6)}...{tx.from.slice(-4)}
+                              {tx.userAddress.slice(0, 6)}...{tx.userAddress.slice(-4)}
                             </a>
                           </TableCell>
+                          <TableCell>{tx.cryptoUsed}</TableCell>
+                          <TableCell>{tx.cryptoSymbol}</TableCell>
+                          <TableCell>{new Date(tx.createdAt).toLocaleString()}</TableCell>
                           <TableCell>
-                            <a
-                              href={`https://basescan.org/address/${tx.to}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="underline"
+                            <span
+                              className={`px-2 py-1 rounded-full text-xs font-semibold ${
+                                tx.onChainStatus === "confirmed"
+                                  ? "bg-green-100 text-green-800"
+                                  : "bg-red-100 text-red-800"
+                              }`}
                             >
-                              {tx.to.slice(0, 6)}...{tx.to.slice(-4)}
-                            </a>
-                          </TableCell>
-                          <TableCell>{tx.value}</TableCell>
-                          <TableCell>{tx.timestamp}</TableCell>
-                          <TableCell>
-                            {tx.decodedData
-                              ? `${tx.decodedData.functionName}(${tx.decodedData.args
-                                  .map((arg) => (typeof arg === "bigint" ? arg.toString() : JSON.stringify(arg)))
-                                  .join(", ")})`
-                              : "N/A"}
-                          </TableCell>
-                          <TableCell>
-                            {tx.logicalOrderId ? <span className="font-semibold">{tx.logicalOrderId}</span> : "N/A"}
-                          </TableCell>
-                          <TableCell>
-                            {tx.requestId ? (
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <span className="font-mono text-xs cursor-help">
-                                    {tx.requestId.length > 10 ? `${tx.requestId.slice(0, 10)}...` : tx.requestId}
-                                  </span>
-                                </TooltipTrigger>
-                                <TooltipContent>{tx.requestId}</TooltipContent>
-                              </Tooltip>
-                            ) : (
-                              "N/A"
-                            )}
+                              {tx.onChainStatus}
+                            </span>
                           </TableCell>
                           <TableCell>
                             {tx.logicalOrderId && (

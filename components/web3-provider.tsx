@@ -9,7 +9,7 @@ import type React from "react"
 
 const config = getDefaultConfig({
   appName: "Paycrypt Admin Dashboard",
-  projectId: "YOUR_WALLETCONNECT_PROJECT_ID", // Replace with your WalletConnect Project ID
+  projectId: process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID, // Replace with your actual WalletConnect Project ID
   chains: [base],
   ssr: true,
 })
