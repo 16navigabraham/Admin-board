@@ -153,8 +153,20 @@ export default function AdminControlsPage() {
       return
     }
     try {
-      // Assuming 18 decimals for simplicity, or fetch token decimals if needed
-      const parsedAmount = parseUnits(emergencyWithdrawAmount, 18)
+      // Fetch token decimals to convert the amount correctly
+      const tokenDetails = (await publicClient.readContract({
+        address: CONTRACT_ADDRESS,
+        abi: CONTRACT_ABI,
+        functionName: "getTokenDetails",
+        args: [emergencyWithdrawTokenAddress as Address],
+      })) as any // Adjust type based on actual return
+
+      if (!tokenDetails || tokenDetails.decimals === undefined) {
+        toast.error("Could not fetch token details or decimals for the given address.")
+        return
+      }
+
+      const parsedAmount = parseUnits(emergencyWithdrawAmount, tokenDetails.decimals)
 
       writeContract({
         address: CONTRACT_ADDRESS,
