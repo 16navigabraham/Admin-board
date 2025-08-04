@@ -243,7 +243,7 @@ export default function ManageOrdersPage() {
       if (!allCreateOrdersResponse.ok) {
         throw new Error("Failed to fetch all create orders for search")
       }
-      const allCreateOrders: any[] = await allCreateOrdersResponse.json() // Use 'any' for now due to mixed types
+      const allCreateOrders = await allCreateOrdersResponse.json() // Use 'any' for now due to mixed types
 
       const foundTx = allCreateOrders.find(
         (tx) =>
@@ -269,6 +269,11 @@ export default function ManageOrdersPage() {
   const handleUseOrderId = (orderId: string) => {
     setOrderIdToProcess(orderId)
     toast.info(`Order ID ${orderId} copied to input.`)
+  }
+
+  const handleCopy = (text: string, label: string) => {
+    navigator.clipboard.writeText(text)
+    toast.info(`${label} copied to clipboard.`)
   }
 
   return (
@@ -536,24 +541,56 @@ export default function ManageOrdersPage() {
                             </Tooltip>
                           </TableCell>
                           <TableCell className="font-medium">
-                            <a
-                              href={`https://basescan.org/tx/${tx.transactionHash}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="underline"
-                            >
-                              {tx.transactionHash.slice(0, 6)}...{tx.transactionHash.slice(-4)}
-                            </a>
+                            <div className="flex items-center gap-2">
+                              <a
+                                href={`https://basescan.org/tx/${tx.transactionHash}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="underline"
+                              >
+                                {tx.transactionHash.slice(0, 6)}...{tx.transactionHash.slice(-4)}
+                              </a>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-6 w-6"
+                                    onClick={() => handleCopy(tx.transactionHash, "Transaction Hash")}
+                                  >
+                                    <Copy className="h-3 w-3" />
+                                    <span className="sr-only">Copy Transaction Hash</span>
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>Copy Transaction Hash</TooltipContent>
+                              </Tooltip>
+                            </div>
                           </TableCell>
                           <TableCell>
-                            <a
-                              href={`https://basescan.org/address/${tx.userAddress}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="underline"
-                            >
-                              {tx.userAddress.slice(0, 6)}...{tx.userAddress.slice(-4)}
-                            </a>
+                            <div className="flex items-center gap-2">
+                              <a
+                                href={`https://basescan.org/address/${tx.userAddress}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="underline"
+                              >
+                                {tx.userAddress.slice(0, 6)}...{tx.userAddress.slice(-4)}
+                              </a>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-6 w-6"
+                                    onClick={() => handleCopy(tx.userAddress, "User Address")}
+                                  >
+                                    <Copy className="h-3 w-3" />
+                                    <span className="sr-only">Copy User Address</span>
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>Copy User Address</TooltipContent>
+                              </Tooltip>
+                            </div>
                           </TableCell>
                           <TableCell>{tx.cryptoUsed}</TableCell>
                           <TableCell>{tx.cryptoSymbol}</TableCell>
