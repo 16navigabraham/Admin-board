@@ -1,11 +1,17 @@
 import { NextResponse } from "next/server"
 import { CONTRACT_ABI } from "@/config/contract"
-import { encodeFunctionData, keccak256, toBytes } from "viem"
+import { encodeFunctionData, stringToBytes, pad, toHex } from "viem" // Added stringToBytes, pad, toHex
 
 export async function GET(request: Request) {
   // This route simulates fetching ALL createOrder transactions from the contract.
   // In a real application, this data would come from a blockchain indexer (e.g., The Graph)
   // that has indexed all OrderCreated events or createOrder function calls.
+
+  // Helper to convert string to bytes32 (padded)
+  const stringToBytes32 = (str: string) => {
+    const bytes = stringToBytes(str)
+    return toHex(pad(bytes, { size: 32 }))
+  }
 
   // For demonstration, we'll generate a simulated list of createOrder transactions.
   // The 'orderId' here is a simulated on-chain ID, and 'requestId' is a simulated input.
@@ -19,10 +25,10 @@ export async function GET(request: Request) {
       input: encodeFunctionData({
         abi: CONTRACT_ABI,
         functionName: "createOrder",
-        args: [keccak256(toBytes("1754295986817-AGQUEO")), "0xSomeTokenAddress", 1000000000000000000n],
+        args: [stringToBytes32("1754295986817-AGQUEO"), "0xSomeTokenAddress", 1000000000000000000n],
       }),
       actualOrderId: "1", // Simulated actual on-chain order ID
-      requestId: "1754295986817-AGQUEO",
+      requestId: "1754295986817-AGQUEO", // Original string for display
     },
     {
       hash: "0x2222222222222222222222222222222222222222222222222222222222222222",
@@ -33,7 +39,7 @@ export async function GET(request: Request) {
       input: encodeFunctionData({
         abi: CONTRACT_ABI,
         functionName: "createOrder",
-        args: [keccak256(toBytes("1754295986818-BGHFJK")), "0xAnotherTokenAddress", 500000000000000000n],
+        args: [stringToBytes32("1754295986818-BGHFJK"), "0xAnotherTokenAddress", 500000000000000000n],
       }),
       actualOrderId: "2",
       requestId: "1754295986818-BGHFJK",
@@ -47,7 +53,7 @@ export async function GET(request: Request) {
       input: encodeFunctionData({
         abi: CONTRACT_ABI,
         functionName: "createOrder",
-        args: [keccak256(toBytes("1754295986819-CDEILM")), "0xSomeTokenAddress", 2000000000000000000n],
+        args: [stringToBytes32("1754295986819-CDEILM"), "0xSomeTokenAddress", 2000000000000000000n],
       }),
       actualOrderId: "3",
       requestId: "1754295986819-CDEILM",
@@ -61,7 +67,7 @@ export async function GET(request: Request) {
       input: encodeFunctionData({
         abi: CONTRACT_ABI,
         functionName: "createOrder",
-        args: [keccak256(toBytes("1754295986820-FGHIJN")), "0xYetAnotherTokenAddress", 750000000000000000n],
+        args: [stringToBytes32("1754295986820-FGHIJN"), "0xYetAnotherTokenAddress", 750000000000000000n],
       }),
       actualOrderId: "4",
       requestId: "1754295986820-FGHIJN",
@@ -75,7 +81,7 @@ export async function GET(request: Request) {
       input: encodeFunctionData({
         abi: CONTRACT_ABI,
         functionName: "createOrder",
-        args: [keccak256(toBytes("1754295986821-KLMNOP")), "0xFinalTokenAddress", 1200000000000000000n],
+        args: [stringToBytes32("1754295986821-KLMNOP"), "0xFinalTokenAddress", 1200000000000000000n],
       }),
       actualOrderId: "5",
       requestId: "1754295986821-KLMNOP",
@@ -89,7 +95,7 @@ export async function GET(request: Request) {
       input: encodeFunctionData({
         abi: CONTRACT_ABI,
         functionName: "createOrder",
-        args: [keccak256(toBytes("1754295986822-QRSTUV")), "0xSomeTokenAddress", 900000000000000000n],
+        args: [stringToBytes32("1754295986822-QRSTUV"), "0xSomeTokenAddress", 900000000000000000n],
       }),
       actualOrderId: "6",
       requestId: "1754295986822-QRSTUV",

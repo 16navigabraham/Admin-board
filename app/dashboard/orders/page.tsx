@@ -1,9 +1,7 @@
 "use client"
 
-import { CardDescription } from "@/components/ui/card"
-
 import { useState } from "react"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
@@ -16,8 +14,9 @@ import {
   type Hex,
   formatUnits,
   decodeEventLog,
-  keccak256,
-  toBytes,
+  stringToBytes, // Import stringToBytes
+  pad, // Import pad
+  toHex, // Import toHex for display
 } from "viem"
 import { base } from "viem/chains"
 import { useWriteContract, useWaitForTransactionReceipt } from "wagmi"
@@ -45,7 +44,7 @@ interface TransactionHistoryItem {
   decodedData?: DecodedTxnData
   logicalOrderId?: string // Client-side derived sequential order ID for createOrder txns
   actualOrderId?: string // Actual on-chain order ID from event decoding
-  requestId?: string // Request ID from createOrder input
+  requestId?: string // Request ID from createOrder input (original string)
 }
 
 export default function ManageOrdersPage() {
@@ -58,7 +57,7 @@ export default function ManageOrdersPage() {
   const [historyAddress, setHistoryAddress] = useState<string>("")
 
   const [requestIdToDecode, setRequestIdToDecode] = useState<string>("")
-  const [decodedRequestIdHash, setDecodedRequestIdHash] = useState<string | null>(null)
+  const [decodedRequestIdBytes32, setDecodedRequestIdBytes32] = useState<Hex | null>(null) // Changed to Hex
   const [foundTxnByRequestId, setFoundTxnByRequestId] = useState<TransactionHistoryItem | null>(null)
   const [isSearchingRequestId, setIsSearchingRequestId] = useState(false)
 
@@ -132,8 +131,17 @@ export default function ManageOrdersPage() {
         toast.info("No 'OrderCreated' event found in this transaction's logs.")
         // If it's a createOrder call and no actual orderId found, suggest using Request ID
         if (decodedInput?.functionName === "createOrder" && decodedInput.args && decodedInput.args.length > 0) {
-          setOrderIdToProcess(decodedInput.args[0].toString())
-          toast.info("Using Request ID from input as a fallback for Order ID.")
+          // Assuming requestId is the first arg and is bytes32
+          const requestIdArg = decodedInput.args[0]
+          if (typeof requestIdArg === "string" && requestIdArg.startsWith("0x") && requestIdArg.length === 66) {
+            // If it's already a bytes32 hex, use it directly
+            setOrderIdToProcess(requestIdArg)
+            toast.info("Using Request ID (bytes32) from input as a fallback for Order ID.")
+          } else {
+            // Fallback for other types or if not bytes32
+            setOrderIdToProcess(requestIdArg.toString())
+            toast.info("Using Request ID from input as a fallback for Order ID.")
+          }
         }
       }
     } catch (error: any) {
@@ -196,7 +204,7 @@ export default function ManageOrdersPage() {
       const historyPromises = rawData.map(async (tx: any) => {
         let decoded: DecodedTxnData | undefined
         let logicalOrderId: string | undefined = undefined // Client-side derived sequential order ID
-        let requestId: string | undefined = undefined
+        let requestIdString: string | undefined = undefined // Original string requestId
 
         try {
           const { functionName, args } = decodeFunctionData({
@@ -210,7 +218,16 @@ export default function ManageOrdersPage() {
             createOrderCounter++
             logicalOrderId = createOrderCounter.toString()
             if (args && args.length > 0) {
-              requestId = args[0].toString() // Assuming requestId is the first arg
+              // Assuming requestId is the first arg and is bytes32
+              const requestIdBytes32 = args[0] as Hex
+              // Attempt to convert bytes32 back to string for display if it's valid UTF-8
+              try {
+                // Remove null padding before converting to string
+                const unpaddedBytes = requestIdBytes32.replace(/00+$/, "") // Remove trailing zeros
+                requestIdString = new TextDecoder().decode(stringToBytes(unpaddedBytes))
+              } catch (e) {
+                requestIdString = requestIdBytes32 // Fallback to raw hex if decoding fails
+              }
             }
           }
         } catch (decodeError) {
@@ -226,7 +243,7 @@ export default function ManageOrdersPage() {
           timestamp: new Date(tx.timestamp * 1000).toLocaleString(),
           decodedData: decoded,
           logicalOrderId: logicalOrderId,
-          requestId: requestId,
+          requestId: requestIdString, // Store the original string or hex
         }
       })
 
@@ -247,17 +264,19 @@ export default function ManageOrdersPage() {
       return
     }
     setIsSearchingRequestId(true)
-    setDecodedRequestIdHash(null)
+    setDecodedRequestIdBytes32(null)
     setFoundTxnByRequestId(null)
 
     try {
-      // Convert the string requestId to bytes32 hash
-      const hashedRequestId = keccak256(toBytes(requestIdToDecode))
-      setDecodedRequestIdHash(hashedRequestId)
-      toast.info(`Request ID hashed to: ${hashedRequestId}`)
+      // Convert the string requestId to bytes32 (padded with null bytes)
+      const bytes = stringToBytes(requestIdToDecode)
+      const paddedBytes32 = pad(bytes, { size: 32 })
+      const hexPaddedBytes32 = toHex(paddedBytes32)
+      setDecodedRequestIdBytes32(hexPaddedBytes32)
+      toast.info(`Request ID converted to bytes32: ${hexPaddedBytes32}`)
 
       // In a real application, you would query a blockchain indexer (e.g., The Graph)
-      // to find transactions by this hashedRequestId.
+      // to find transactions by this bytes32 requestId.
       // For this demo, we'll simulate finding it in the currently loaded history.
       const allCreateOrdersResponse = await fetch("/api/all-create-orders") // Fetch all create orders
       if (!allCreateOrdersResponse.ok) {
@@ -269,7 +288,7 @@ export default function ManageOrdersPage() {
         (tx) =>
           tx.decodedData?.functionName === "createOrder" &&
           tx.decodedData.args &&
-          tx.decodedData.args[0] === hashedRequestId, // Compare with the hashed requestId
+          tx.decodedData.args[0] === hexPaddedBytes32, // Compare with the correctly padded bytes32
       )
 
       if (foundTx) {
@@ -362,7 +381,7 @@ export default function ManageOrdersPage() {
         <CardHeader>
           <CardTitle>Decode Request ID & Find Transaction</CardTitle>
           <CardDescription>
-            Convert a human-readable Request ID to its on-chain hash and find matching transactions.
+            Convert a human-readable Request ID to its `bytes32` representation and find matching transactions.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -388,10 +407,10 @@ export default function ManageOrdersPage() {
                 </>
               )}
             </Button>
-            {decodedRequestIdHash && (
+            {decodedRequestIdBytes32 && (
               <div className="mt-4 p-4 border rounded-md bg-muted">
-                <h3 className="font-semibold">Hashed Request ID (bytes32):</h3>
-                <p className="break-all font-mono text-sm">{decodedRequestIdHash}</p>
+                <h3 className="font-semibold">Converted Request ID (bytes32):</h3>
+                <p className="break-all font-mono text-sm">{decodedRequestIdBytes32}</p>
                 <p className="text-sm text-muted-foreground mt-2">
                   Note: Finding transactions by Request ID on-chain typically requires a blockchain indexing service
                   (e.g., The Graph) that indexes contract input data. This tool simulates finding it within the fetched
@@ -588,7 +607,14 @@ export default function ManageOrdersPage() {
                           </TableCell>
                           <TableCell>
                             {tx.requestId ? (
-                              <span className="font-mono text-xs">{tx.requestId.slice(0, 6)}...</span>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <span className="font-mono text-xs cursor-help">
+                                    {tx.requestId.length > 10 ? `${tx.requestId.slice(0, 10)}...` : tx.requestId}
+                                  </span>
+                                </TooltipTrigger>
+                                <TooltipContent>{tx.requestId}</TooltipContent>
+                              </Tooltip>
                             ) : (
                               "N/A"
                             )}
