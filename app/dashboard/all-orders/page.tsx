@@ -3,32 +3,27 @@
 import { useState, useEffect } from "react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { Loader2, Copy } from "lucide-react"
+import { Loader2, Copy } from 'lucide-react'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { toast } from "sonner"
-import { decodeFunctionData, formatUnits } from "viem"
-import { CONTRACT_ABI } from "@/config/contract"
-import type { Hex } from "viem/types"
+import { formatUnits } from "viem" // Only need formatUnits for amount
+import { Button } from "@/components/ui/button" // Import Button component
 
-interface DecodedTxnData {
-  functionName: string
-  args: any[]
-}
-
-interface AllOrderHistoryItem {
-  hash: string
-  from: string
-  to: string
-  value: string
-  timestamp: string
-  decodedData?: DecodedTxnData
-  actualOrderId?: string // Actual on-chain order ID from event decoding (simulated here)
-  requestId?: string // Request ID from createOrder input (simulated here)
+// Interface matching the backend's Order structure
+interface Order {
+  orderId: string
+  requestId: string
+  userWallet: string
+  tokenAddress: string
+  amount: string // This is a string representing a BigInt (wei)
+  txnHash: string
+  blockNumber: number
+  timestamp: string // ISO string
 }
 
 export default function AllOrdersPage() {
-  const [allCreateOrders, setAllCreateOrders] = useState<AllOrderHistoryItem[]>([])
+  const [allCreateOrders, setAllCreateOrders] = useState<Order[]>([])
   const [isFetchingOrders, setIsFetchingOrders] = useState(false)
   const [timeframe, setTimeframe] = useState<string>("all") // 'all', '24h', '7d'
 
@@ -36,41 +31,23 @@ export default function AllOrdersPage() {
     setIsFetchingOrders(true)
     setAllCreateOrders([])
     try {
-      const response = await fetch("/api/all-create-orders")
+      let apiUrl = `${process.env.NEXT_PUBLIC_BACKEND_API_URL}/api/orders`
+      if (timeframe !== "all") {
+        apiUrl += `?range=${timeframe}`
+      }
+
+      const response = await fetch(apiUrl)
       if (!response.ok) {
-        throw new Error("Failed to fetch all create orders")
+        throw new Error("Failed to fetch all create orders from backend")
       }
-      const rawData: AllOrderHistoryItem[] = await response.json()
+      const data: { orders: Order[] } = await response.json()
 
-      let filteredData = rawData
-      const now = Date.now() / 1000 // Current timestamp in seconds
-
-      if (timeframe === "24h") {
-        filteredData = rawData.filter((tx) => now - Number.parseInt(tx.timestamp) <= 24 * 3600)
-      } else if (timeframe === "7d") {
-        filteredData = rawData.filter((tx) => now - Number.parseInt(tx.timestamp) <= 7 * 24 * 3600)
-      }
-
-      // Decode input data for display
-      const processedData = filteredData.map((tx) => {
-        let decoded: DecodedTxnData | undefined
-        try {
-          const { functionName, args } = decodeFunctionData({
-            abi: CONTRACT_ABI,
-            data: tx.input as Hex,
-          })
-          decoded = { functionName, args }
-        } catch (e) {
-          decoded = undefined
-        }
-
-        return {
-          ...tx,
-          value: formatUnits(BigInt(tx.value), 18), // Assuming ETH value for transaction value
-          timestamp: new Date(Number.parseInt(tx.timestamp) * 1000).toLocaleString(),
-          decodedData: decoded,
-        }
-      })
+      // Process data to format amount and timestamp for display
+      const processedData = data.orders.map((order) => ({
+        ...order,
+        amount: formatUnits(BigInt(order.amount), 18), // Assuming 18 decimals for token amount
+        timestamp: new Date(order.timestamp).toLocaleString(),
+      }))
 
       setAllCreateOrders(processedData)
       toast.success("All create orders fetched successfully!")
@@ -86,9 +63,9 @@ export default function AllOrdersPage() {
     fetchAllCreateOrders()
   }, [timeframe]) // Refetch when timeframe changes
 
-  const handleCopyOrderId = (orderId: string) => {
-    navigator.clipboard.writeText(orderId)
-    toast.info(`Order ID ${orderId} copied to clipboard.`)
+  const handleCopy = (text: string, label: string) => {
+    navigator.clipboard.writeText(text)
+    toast.info(`${label} copied to clipboard.`)
   }
 
   return (
@@ -102,8 +79,7 @@ export default function AllOrdersPage() {
             Displays all `createOrder` transactions on the contract.
             <br />
             <span className="text-sm text-muted-foreground">
-              Note: This data is currently simulated. For production, a blockchain indexing solution (e.g., The Graph)
-              is required to fetch all contract events efficiently.
+              This data is now fetched from your backend API.
             </span>
           </CardDescription>
         </CardHeader>
@@ -129,58 +105,122 @@ export default function AllOrdersPage() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Actual Order ID</TableHead>
+                    <TableHead>Order ID</TableHead>
                     <TableHead>Request ID</TableHead>
-                    <TableHead>Hash</TableHead>
-                    <TableHead>From</TableHead>
+                    <TableHead>Txn Hash</TableHead>
+                    <TableHead>User Wallet</TableHead>
+                    <TableHead>Token Address</TableHead>
+                    <TableHead>Amount</TableHead>
                     <TableHead>Timestamp</TableHead>
-                    <TableHead>Value (ETH)</TableHead>
                     <TableHead>Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   <TooltipProvider delayDuration={0}>
                     {allCreateOrders.map((tx) => (
-                      <TableRow key={tx.hash}>
-                        <TableCell className="font-semibold">{tx.actualOrderId}</TableCell>
-                        <TableCell className="font-mono text-xs">{tx.requestId?.slice(0, 10)}...</TableCell>
-                        <TableCell className="font-medium">
-                          <a
-                            href={`https://basescan.org/tx/${tx.hash}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="underline"
-                          >
-                            {tx.hash.slice(0, 6)}...{tx.hash.slice(-4)}
-                          </a>
-                        </TableCell>
-                        <TableCell>
-                          <a
-                            href={`https://basescan.org/address/${tx.from}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="underline"
-                          >
-                            {tx.from.slice(0, 6)}...{tx.from.slice(-4)}
-                          </a>
-                        </TableCell>
-                        <TableCell>{tx.timestamp}</TableCell>
-                        <TableCell>{tx.value}</TableCell>
-                        <TableCell>
-                          {tx.actualOrderId && (
+                      <TableRow key={tx.txnHash}>
+                        <TableCell className="font-semibold">{tx.orderId}</TableCell>
+                        <TableCell className="font-mono text-xs">
+                          <div className="flex items-center gap-2">
+                            {tx.requestId.slice(0, 10)}...
                             <Tooltip>
                               <TooltipTrigger asChild>
-                                <button
-                                  className="h-8 w-8 bg-transparent border rounded"
-                                  onClick={() => handleCopyOrderId(tx.actualOrderId!)}
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-6 w-6"
+                                  onClick={() => handleCopy(tx.requestId, "Request ID")}
                                 >
-                                  <Copy className="h-4 w-4" />
-                                  <span className="sr-only">Copy Order ID</span>
-                                </button>
+                                  <Copy className="h-3 w-3" />
+                                  <span className="sr-only">Copy Request ID</span>
+                                </Button>
                               </TooltipTrigger>
-                              <TooltipContent>Copy Actual Order ID</TooltipContent>
+                              <TooltipContent>Copy Request ID</TooltipContent>
                             </Tooltip>
-                          )}
+                          </div>
+                        </TableCell>
+                        <TableCell className="font-medium">
+                          <div className="flex items-center gap-2">
+                            <a
+                              href={`https://basescan.org/tx/${tx.txnHash}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="underline"
+                            >
+                              {tx.txnHash.slice(0, 6)}...{tx.txnHash.slice(-4)}
+                            </a>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-6 w-6"
+                                  onClick={() => handleCopy(tx.txnHash, "Transaction Hash")}
+                                >
+                                  <Copy className="h-3 w-3" />
+                                  <span className="sr-only">Copy Transaction Hash</span>
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent>Copy Transaction Hash</TooltipContent>
+                            </Tooltip>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-2">
+                            <a
+                              href={`https://basescan.org/address/${tx.userWallet}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="underline"
+                            >
+                              {tx.userWallet.slice(0, 6)}...{tx.userWallet.slice(-4)}
+                            </a>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-6 w-6"
+                                  onClick={() => handleCopy(tx.userWallet, "User Wallet")}
+                                >
+                                  <Copy className="h-3 w-3" />
+                                  <span className="sr-only">Copy User Wallet</span>
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent>Copy User Wallet</TooltipContent>
+                            </Tooltip>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-2">
+                            <a
+                              href={`https://basescan.org/token/${tx.tokenAddress}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="underline"
+                            >
+                              {tx.tokenAddress.slice(0, 6)}...{tx.tokenAddress.slice(-4)}
+                            </a>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-6 w-6"
+                                  onClick={() => handleCopy(tx.tokenAddress, "Token Address")}
+                                >
+                                  <Copy className="h-3 w-3" />
+                                  <span className="sr-only">Copy Token Address</span>
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent>Copy Token Address</TooltipContent>
+                            </Tooltip>
+                          </div>
+                        </TableCell>
+                        <TableCell>{tx.amount}</TableCell>
+                        <TableCell>{tx.timestamp}</TableCell>
+                        <TableCell>
+                          {/* Add any specific actions for individual orders here if needed */}
                         </TableCell>
                       </TableRow>
                     ))}

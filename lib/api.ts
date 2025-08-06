@@ -1,9 +1,9 @@
 export async function getUserHistory(userAddress: string) {
-  // Hardcoded backend API URL as requested
-  const BASE_URL = "https://wagmicharge-backend.onrender.com"
+  // Using the environment variable for the backend API URL
+  const BASE_URL = process.env.NEXT_PUBLIC_BACKEND_API_URL
 
-  // Using the specified endpoint structure: /api/history?userAddress=...
-  const res = await fetch(`${BASE_URL}/api/history?userAddress=${userAddress}`)
+  // Using the specified endpoint structure: /api/orders/user/:userWallet
+  const res = await fetch(`${BASE_URL}/api/orders/user/${userAddress}`)
   if (!res.ok) {
     const errorData = await res.json()
     throw new Error(errorData.error || "Failed to fetch history from backend")

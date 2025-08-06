@@ -4,7 +4,7 @@ import { CardDescription } from "@/components/ui/card"
 
 import { useState, useEffect } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { DollarSign, Package, XCircle, CheckCircle, RefreshCw, Loader2 } from "lucide-react"
+import { DollarSign, Package, XCircle, CheckCircle, RefreshCw, Loader2 } from 'lucide-react'
 import { CONTRACT_ABI, CONTRACT_ADDRESS } from "@/config/contract"
 import { createPublicClient, http, formatUnits } from "viem"
 import { base } from "viem/chains"
@@ -13,11 +13,6 @@ import { toast } from "sonner"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart"
 import { Bar, BarChart, Line, LineChart, XAxis, YAxis, CartesianGrid, Legend, ResponsiveContainer } from "recharts"
-
-const publicClient = createPublicClient({
-  chain: base,
-  transport: http(),
-})
 
 // Placeholder exchange rates - In a real app, fetch these from an API
 // Assuming USDT/USDC are ~1 USD
@@ -29,11 +24,12 @@ const EXCHANGE_RATES = {
 type Currency = "STABLE" | "USD" | "NGN"
 
 interface DailyStats {
-  date: string
-  totalVolume: number
+  date: string // ISO string from backend
+  orderCount: number
+  totalVolume: number // Already formatted number from backend
   successfulOrders: number
   failedOrders: number
-  orderCounter: number
+  successRate: number
 }
 
 export default function DashboardOverviewPage() {
@@ -43,42 +39,26 @@ export default function DashboardOverviewPage() {
   const [orderCounter, setOrderCounter] = useState<string>("N/A")
   const [isLoadingStats, setIsLoadingStats] = useState(false)
   const [currentCurrency, setCurrentCurrency] = useState<Currency>("STABLE")
-  const [rawTotalVolumeBigInt, setRawTotalVolumeBigInt] = useState<bigint | null>(null)
+  const [rawTotalVolumeBigInt, setRawTotalVolumeBigInt] = useState<bigint | null>(null) // Keep for currency conversion
   const [dailyStats, setDailyStats] = useState<DailyStats[]>([])
-  const [chartTimeframe, setChartTimeframe] = useState<string>("7d") // '7d', '30d'
+  const [chartTimeframe, setChartTimeframe] = useState<string>("7d") // '7d', '30d', '24h', '1h'
 
   const fetchDashboardStats = async () => {
     setIsLoadingStats(true)
     try {
-      const [volume, successful, failed, counter] = await Promise.all([
-        publicClient.readContract({
-          address: CONTRACT_ADDRESS,
-          abi: CONTRACT_ABI,
-          functionName: "getTotalVolume",
-        }),
-        publicClient.readContract({
-          address: CONTRACT_ADDRESS,
-          abi: CONTRACT_ABI,
-          functionName: "getTotalSuccessfulOrders",
-        }),
-        publicClient.readContract({
-          address: CONTRACT_ADDRESS,
-          abi: CONTRACT_ABI,
-          functionName: "getTotalFailedOrders",
-        }),
-        publicClient.readContract({
-          address: CONTRACT_ADDRESS,
-          abi: CONTRACT_ABI,
-          functionName: "getOrderCounter",
-        }),
-      ])
+      const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_API_URL}/api/stats`)
+      if (!response.ok) {
+        throw new Error("Failed to fetch dashboard stats from backend")
+      }
+      const data = await response.json()
 
-      setRawTotalVolumeBigInt(volume as bigint)
-      // Assuming 6 decimals for stablecoins like USDT/USDC
-      setTotalVolume(formatUnits(volume as bigint, 6))
-      setTotalSuccessfulOrders(successful.toString())
-      setTotalFailedOrders(failed.toString())
-      setOrderCounter(counter.toString())
+      // The backend returns totalVolume as a string representing a large number (likely wei)
+      const volumeBigInt = BigInt(data.totalVolume)
+      setRawTotalVolumeBigInt(volumeBigInt) // Store raw bigint for currency conversion
+      setTotalVolume(formatUnits(volumeBigInt, 18)) // Format for display, assuming 18 decimals for contract volume
+      setTotalSuccessfulOrders(data.successfulOrders.toString())
+      setTotalFailedOrders(data.failedOrders.toString())
+      setOrderCounter(data.orderCount.toString())
       toast.success("Dashboard stats updated!")
     } catch (error) {
       console.error("Error fetching dashboard stats:", error)
@@ -94,12 +74,19 @@ export default function DashboardOverviewPage() {
 
   const fetchDailyStats = async (timeframe: string) => {
     try {
-      const response = await fetch(`/api/dashboard-history?timeframe=${timeframe}`)
+      const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_API_URL}/api/stats/chart/${timeframe}`)
       if (!response.ok) {
-        throw new Error("Failed to fetch daily stats")
+        throw new Error("Failed to fetch daily stats from backend")
       }
-      const data: DailyStats[] = await response.json()
-      setDailyStats(data)
+      const data: { period: string; data: DailyStats[]; count: number } = await response.json()
+
+      // Map backend data to match chart expectations
+      const processedData = data.data.map((item) => ({
+        ...item,
+        date: new Date(item.timestamp).toLocaleDateString("en-US", { month: "short", day: "numeric" }), // Format date for display
+        totalVolume: Number.parseFloat(formatUnits(BigInt(item.totalVolume), 18)), // Convert volume from string (wei) to number
+      }))
+      setDailyStats(processedData)
     } catch (error) {
       console.error("Error fetching daily stats:", error)
       toast.error("Failed to load chart data.")
@@ -118,21 +105,22 @@ export default function DashboardOverviewPage() {
   useEffect(() => {
     if (rawTotalVolumeBigInt !== null) {
       let convertedValue: string
-      // Convert raw bigint to a number using 6 decimals (for stablecoins)
-      const stablecoinValue = Number.parseFloat(formatUnits(rawTotalVolumeBigInt, 6))
+      // Convert raw bigint to a number using 18 decimals (for contract volume)
+      const contractVolumeValue = Number.parseFloat(formatUnits(rawTotalVolumeBigInt, 18))
 
       switch (currentCurrency) {
         case "USD":
-          convertedValue = (stablecoinValue * EXCHANGE_RATES.USD_PER_STABLECOIN).toFixed(2)
+          // Assuming contract volume is in a stablecoin equivalent to USD
+          convertedValue = (contractVolumeValue * EXCHANGE_RATES.USD_PER_STABLECOIN).toFixed(2)
           setTotalVolume(`$${convertedValue}`)
           break
         case "NGN":
-          convertedValue = (stablecoinValue * EXCHANGE_RATES.USD_PER_STABLECOIN * EXCHANGE_RATES.NGN_PER_USD).toFixed(2)
+          convertedValue = (contractVolumeValue * EXCHANGE_RATES.USD_PER_STABLECOIN * EXCHANGE_RATES.NGN_PER_USD).toFixed(2)
           setTotalVolume(`₦${convertedValue}`)
           break
         case "STABLE":
         default:
-          setTotalVolume(stablecoinValue.toFixed(2)) // Display stablecoin value with 2 decimals
+          setTotalVolume(contractVolumeValue.toFixed(2)) // Display contract volume with 2 decimals
           break
       }
     }
@@ -151,7 +139,7 @@ export default function DashboardOverviewPage() {
       label: "Failed Orders",
       color: "hsl(var(--chart-3))",
     },
-    orderCounter: {
+    orderCount: { // Changed from orderCounter to orderCount to match backend
       label: "Total Orders",
       color: "hsl(var(--chart-4))",
     },
@@ -229,6 +217,8 @@ export default function DashboardOverviewPage() {
               <SelectValue placeholder="Select Timeframe" />
             </SelectTrigger>
             <SelectContent>
+              <SelectItem value="1h">Last 1 Hour</SelectItem>
+              <SelectItem value="24h">Last 24 Hours</SelectItem>
               <SelectItem value="7d">Last 7 Days</SelectItem>
               <SelectItem value="30d">Last 30 Days</SelectItem>
             </SelectContent>
@@ -319,9 +309,9 @@ export default function DashboardOverviewPage() {
                     <YAxis tickLine={false} axisLine={false} />
                     <ChartTooltip content={<ChartTooltipContent />} />
                     <Line
-                      dataKey="orderCounter"
+                      dataKey="orderCount" // Changed from orderCounter to orderCount
                       type="monotone"
-                      stroke="var(--color-orderCounter)"
+                      stroke="var(--color-orderCount)"
                       strokeWidth={2}
                       dot={false}
                     />
@@ -332,8 +322,7 @@ export default function DashboardOverviewPage() {
           </Card>
         </div>
         <p className="text-sm text-muted-foreground mt-4">
-          Note: Historical data for charts is currently simulated. For production, a blockchain indexing solution (e.g.,
-          The Graph) is recommended to aggregate real-time contract events.
+          Note: Historical data for charts is now fetched from your backend API.
         </p>
       </div>
     </div>
