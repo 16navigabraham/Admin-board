@@ -7,11 +7,11 @@ import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { toast } from "sonner"
 import { CONTRACT_ABI, CONTRACT_ADDRESS } from "@/config/contract"
-import { createPublicClient, http, decodeFunctionData, type Hex, decodeEventLog, stringToBytes, pad, toHex } from "viem"
+import { createPublicClient, http, decodeFunctionData, type Hex, decodeEventLog, stringToBytes, pad, toHex, formatUnits } from "viem"
 import { base } from "viem/chains"
 import { useWriteContract, useWaitForTransactionReceipt } from "wagmi"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { Loader2, Copy, Search } from "lucide-react"
+import { Loader2, Copy, Search } from 'lucide-react'
 import { getUserHistory } from "@/lib/api"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 
@@ -25,31 +25,23 @@ interface DecodedTxnData {
   args: any[]
 }
 
-// Updated interface to match your backend's 'orders' structure
-interface TransactionHistoryItem {
-  _id: string
+// Updated interface to match the backend's 'Order' structure from /api/orders/user/:userWallet
+interface OrderHistoryItem {
+  orderId: string // This is the actual on-chain order ID
   requestId: string
-  userAddress: string
-  transactionHash: string
-  serviceType: string
-  serviceID: string
-  customerIdentifier: string
-  amountNaira: number
-  cryptoUsed: number // This is the value in decimal form
-  cryptoSymbol: string
-  onChainStatus: string
-  vtpassStatus: string
-  createdAt: string // ISO string from backend
-  updatedAt: string
-  logicalOrderId?: string // Client-side derived sequential order ID
-  // decodedData is not available from this backend response
+  userWallet: string
+  tokenAddress: string
+  amount: string // This is a string representing a BigInt (wei)
+  txnHash: string
+  blockNumber: number
+  timestamp: string // ISO string from backend
 }
 
 export default function ManageOrdersPage() {
   const [txnHash, setTxnHash] = useState<string>("")
   const [decodedData, setDecodedData] = useState<DecodedTxnData | null>(null)
   const [orderIdToProcess, setOrderIdToProcess] = useState<string>("")
-  const [transactionHistory, setTransactionHistory] = useState<TransactionHistoryItem[]>([])
+  const [transactionHistory, setTransactionHistory] = useState<OrderHistoryItem[]>([]) // Changed type
   const [isDecoding, setIsDecoding] = useState(false)
   const [isFetchingHistory, setIsFetchingHistory] = useState(false)
   const [historyAddress, setHistoryAddress] = useState<string>("")
@@ -196,18 +188,15 @@ export default function ManageOrdersPage() {
     setIsFetchingHistory(true)
     setTransactionHistory([])
     try {
-      const rawData: TransactionHistoryItem[] = await getUserHistory(historyAddress) // rawData is now the 'orders' array
-      let logicalOrderCounter = 0
-
-      const processedHistory = rawData.map((tx) => {
-        logicalOrderCounter++
-        return {
-          ...tx,
-          logicalOrderId: logicalOrderCounter.toString(), // Assign sequential logical ID
-          // No decodedData as raw input is not provided by this backend
-          // No need for BigInt or formatUnits for cryptoUsed as it's already a number
-        }
-      })
+      const rawData: OrderHistoryItem[] = await getUserHistory(historyAddress) // rawData is now the 'orders' array
+      
+      const processedHistory = rawData.map((tx) => ({
+        ...tx,
+        // Format amount from wei string to readable number (assuming 18 decimals for tokens)
+        amount: formatUnits(BigInt(tx.amount), 18),
+        // Format timestamp from ISO string to local date/time string
+        timestamp: new Date(tx.timestamp).toLocaleString(),
+      }))
 
       setTransactionHistory(processedHistory)
       toast.success("Transaction history fetched successfully!")
@@ -236,20 +225,16 @@ export default function ManageOrdersPage() {
       setDecodedRequestIdBytes32(hexPaddedBytes32)
       toast.info(`Request ID converted to bytes32: ${hexPaddedBytes32}`)
 
-      // In a real application, you would query a blockchain indexer (e.g., The Graph)
-      // to find transactions by this bytes32 requestId.
-      // For this demo, we'll simulate finding it in the currently loaded history.
-      const allCreateOrdersResponse = await fetch("/api/all-create-orders") // Fetch all create orders
-      if (!allCreateOrdersResponse.ok) {
-        throw new Error("Failed to fetch all create orders for search")
+      // Fetch all orders from the backend to search for the requestId
+      const allOrdersResponse = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_API_URL}/api/orders`)
+      if (!allOrdersResponse.ok) {
+        const errorData = await allOrdersResponse.json().catch(() => ({}));
+        throw new Error(errorData.error || `Failed to fetch all orders for search: HTTP ${allOrdersResponse.status}`);
       }
-      const allCreateOrders = await allCreateOrdersResponse.json() // Use 'any' for now due to mixed types
+      const allOrdersData: { orders: OrderHistoryItem[] } = await allOrdersResponse.json()
 
-      const foundTx = allCreateOrders.find(
-        (tx) =>
-          tx.decodedData?.functionName === "createOrder" &&
-          tx.decodedData.args &&
-          tx.decodedData.args[0] === hexPaddedBytes32, // Compare with the correctly padded bytes32
+      const foundTx = allOrdersData.orders.find(
+        (order) => order.requestId === requestIdToDecode // Compare directly with the string requestId
       )
 
       if (foundTx) {
@@ -282,7 +267,10 @@ export default function ManageOrdersPage() {
 
       <Card className="mb-6">
         <CardHeader>
-          <CardTitle>Decode Transaction Input & Find Actual Order ID</CardTitle>
+          <CardTitle>Decode Transaction Input & Find Actual Order ID (On-chain)</CardTitle>
+          <CardDescription>
+            Fetches transaction details and attempts to extract the on-chain Order ID from `OrderCreated` events or `createOrder` function arguments.
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <div className="grid gap-4">
@@ -345,9 +333,9 @@ export default function ManageOrdersPage() {
 
       <Card className="mb-6">
         <CardHeader>
-          <CardTitle>Decode Request ID & Find Transaction</CardTitle>
+          <CardTitle>Decode Request ID & Find Transaction (Database Search)</CardTitle>
           <CardDescription>
-            Convert a human-readable Request ID to its `bytes32` representation and find matching transactions.
+            Convert a human-readable Request ID to its `bytes32` representation and find matching transactions from the backend database.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -378,37 +366,46 @@ export default function ManageOrdersPage() {
                 <h3 className="font-semibold">Converted Request ID (bytes32):</h3>
                 <p className="break-all font-mono text-sm">{decodedRequestIdBytes32}</p>
                 <p className="text-sm text-muted-foreground mt-2">
-                  Note: Finding transactions by Request ID on-chain typically requires a blockchain indexing service
-                  (e.g., The Graph) that indexes contract input data. This tool simulates finding it within the fetched
-                  "All Create Orders" history.
+                  Note: This search is performed against the backend's indexed orders.
                 </p>
                 {foundTxnByRequestId && (
                   <div className="mt-4">
                     <h3 className="font-semibold">Matching Transaction Found:</h3>
                     <p>
+                      <strong>Order ID:</strong> {foundTxnByRequestId.orderId}
+                    </p>
+                    <p>
                       <strong>Hash:</strong>{" "}
                       <a
-                        href={`https://basescan.org/tx/${foundTxnByRequestId.hash}`}
+                        href={`https://basescan.org/tx/${foundTxnByRequestId.txnHash}`}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="underline"
                       >
-                        {foundTxnByRequestId.hash.slice(0, 10)}...{foundTxnByRequestId.hash.slice(-8)}
+                        {foundTxnByRequestId.txnHash.slice(0, 10)}...{foundTxnByRequestId.txnHash.slice(-8)}
                       </a>
                     </p>
                     <p>
-                      <strong>Function:</strong> {foundTxnByRequestId.decodedData?.functionName}
+                      <strong>User Wallet:</strong>{" "}
+                      <a
+                        href={`https://basescan.org/address/${foundTxnByRequestId.userWallet}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="underline"
+                      >
+                        {foundTxnByRequestId.userWallet.slice(0, 10)}...{foundTxnByRequestId.userWallet.slice(-8)}
+                      </a>
                     </p>
                     <p>
-                      <strong>Logical Order ID:</strong> {foundTxnByRequestId.logicalOrderId}
+                      <strong>Amount:</strong> {foundTxnByRequestId.amount}
                     </p>
                     <Button
                       variant="outline"
                       size="sm"
                       className="mt-2 bg-transparent"
-                      onClick={() => handleUseOrderId(foundTxnByRequestId.logicalOrderId!)}
+                      onClick={() => handleUseOrderId(foundTxnByRequestId.orderId!)}
                     >
-                      <Copy className="mr-2 h-4 w-4" /> Use this Logical Order ID
+                      <Copy className="mr-2 h-4 w-4" /> Use this Order ID
                     </Button>
                   </div>
                 )}
@@ -483,9 +480,9 @@ export default function ManageOrdersPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Transaction History (User Specific)</CardTitle>
+          <CardTitle>Transaction History (User Specific - Database)</CardTitle>
           <CardDescription>
-            Displays application-level orders for a specific user, with logical Order IDs.
+            Displays application-level orders for a specific user, fetched from the backend database.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -514,22 +511,21 @@ export default function ManageOrdersPage() {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Logical Order ID</TableHead>
+                      <TableHead>Order ID</TableHead>
                       <TableHead>Request ID</TableHead>
                       <TableHead>Txn Hash</TableHead>
-                      <TableHead>User Address</TableHead>
-                      <TableHead>Crypto Used</TableHead>
-                      <TableHead>Symbol</TableHead>
-                      <TableHead>Created At</TableHead>
-                      <TableHead>Status</TableHead>
+                      <TableHead>User Wallet</TableHead>
+                      <TableHead>Token Address</TableHead>
+                      <TableHead>Amount</TableHead>
+                      <TableHead>Timestamp</TableHead>
                       <TableHead>Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     <TooltipProvider delayDuration={0}>
                       {transactionHistory.map((tx) => (
-                        <TableRow key={tx._id}>
-                          <TableCell className="font-semibold">{tx.logicalOrderId}</TableCell>
+                        <TableRow key={tx.txnHash}>
+                          <TableCell className="font-semibold">{tx.orderId}</TableCell>
                           <TableCell>
                             <Tooltip>
                               <TooltipTrigger asChild>
@@ -543,12 +539,12 @@ export default function ManageOrdersPage() {
                           <TableCell className="font-medium">
                             <div className="flex items-center gap-2">
                               <a
-                                href={`https://basescan.org/tx/${tx.transactionHash}`}
+                                href={`https://basescan.org/tx/${tx.txnHash}`}
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 className="underline"
                               >
-                                {tx.transactionHash.slice(0, 6)}...{tx.transactionHash.slice(-4)}
+                                {tx.txnHash.slice(0, 6)}...{tx.txnHash.slice(-4)}
                               </a>
                               <Tooltip>
                                 <TooltipTrigger asChild>
@@ -556,7 +552,7 @@ export default function ManageOrdersPage() {
                                     variant="ghost"
                                     size="icon"
                                     className="h-6 w-6"
-                                    onClick={() => handleCopy(tx.transactionHash, "Transaction Hash")}
+                                    onClick={() => handleCopy(tx.txnHash, "Transaction Hash")}
                                   >
                                     <Copy className="h-3 w-3" />
                                     <span className="sr-only">Copy Transaction Hash</span>
@@ -569,12 +565,12 @@ export default function ManageOrdersPage() {
                           <TableCell>
                             <div className="flex items-center gap-2">
                               <a
-                                href={`https://basescan.org/address/${tx.userAddress}`}
+                                href={`https://basescan.org/address/${tx.userWallet}`}
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 className="underline"
                               >
-                                {tx.userAddress.slice(0, 6)}...{tx.userAddress.slice(-4)}
+                                {tx.userWallet.slice(0, 6)}...{tx.userWallet.slice(-4)}
                               </a>
                               <Tooltip>
                                 <TooltipTrigger asChild>
@@ -582,45 +578,59 @@ export default function ManageOrdersPage() {
                                     variant="ghost"
                                     size="icon"
                                     className="h-6 w-6"
-                                    onClick={() => handleCopy(tx.userAddress, "User Address")}
+                                    onClick={() => handleCopy(tx.userWallet, "User Wallet")}
                                   >
                                     <Copy className="h-3 w-3" />
-                                    <span className="sr-only">Copy User Address</span>
+                                    <span className="sr-only">Copy User Wallet</span>
                                   </Button>
                                 </TooltipTrigger>
-                                <TooltipContent>Copy User Address</TooltipContent>
+                                <TooltipContent>Copy User Wallet</TooltipContent>
                               </Tooltip>
                             </div>
                           </TableCell>
-                          <TableCell>{tx.cryptoUsed}</TableCell>
-                          <TableCell>{tx.cryptoSymbol}</TableCell>
-                          <TableCell>{new Date(tx.createdAt).toLocaleString()}</TableCell>
                           <TableCell>
-                            <span
-                              className={`px-2 py-1 rounded-full text-xs font-semibold ${
-                                tx.onChainStatus === "confirmed"
-                                  ? "bg-green-100 text-green-800"
-                                  : "bg-red-100 text-red-800"
-                              }`}
-                            >
-                              {tx.onChainStatus}
-                            </span>
+                            <div className="flex items-center gap-2">
+                              <a
+                                href={`https://basescan.org/token/${tx.tokenAddress}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="underline"
+                              >
+                                {tx.tokenAddress.slice(0, 6)}...{tx.tokenAddress.slice(-4)}
+                              </a>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-6 w-6"
+                                    onClick={() => handleCopy(tx.tokenAddress, "Token Address")}
+                                  >
+                                    <Copy className="h-3 w-3" />
+                                    <span className="sr-only">Copy Token Address</span>
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>Copy Token Address</TooltipContent>
+                              </Tooltip>
+                            </div>
                           </TableCell>
+                          <TableCell>{tx.amount}</TableCell>
+                          <TableCell>{tx.timestamp}</TableCell>
                           <TableCell>
-                            {tx.logicalOrderId && (
+                            {tx.orderId && (
                               <Tooltip>
                                 <TooltipTrigger asChild>
                                   <Button
                                     variant="outline"
                                     size="icon"
                                     className="h-8 w-8 bg-transparent"
-                                    onClick={() => handleUseOrderId(tx.logicalOrderId!)}
+                                    onClick={() => handleUseOrderId(tx.orderId!)}
                                   >
                                     <Copy className="h-4 w-4" />
-                                    <span className="sr-only">Use Logical Order ID</span>
+                                    <span className="sr-only">Use Order ID</span>
                                   </Button>
                                 </TooltipTrigger>
-                                <TooltipContent>Use this Logical Order ID</TooltipContent>
+                                <TooltipContent>Use this Order ID</TooltipContent>
                               </Tooltip>
                             )}
                           </TableCell>
