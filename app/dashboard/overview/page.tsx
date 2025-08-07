@@ -23,12 +23,17 @@ interface ExchangeRates {
 }
 
 interface DailyStats {
-  date: string // ISO string from backend
+  date: string
   orderCount: number
-  totalVolume: number // Already formatted number from backend
+  totalVolume: number
   successfulOrders: number
   failedOrders: number
   successRate: number
+  timestamp?: string // Made optional since it comes from backend
+}
+
+interface ProcessedDailyStats extends DailyStats {
+  timestamp: string // Required for processed data
 }
 
 export default function DashboardOverviewPage() {
@@ -38,9 +43,9 @@ export default function DashboardOverviewPage() {
   const [orderCounter, setOrderCounter] = useState<string>("N/A")
   const [isLoadingStats, setIsLoadingStats] = useState(false)
   const [currentCurrency, setCurrentCurrency] = useState<Currency>("USDC")
-  const [rawTotalVolumeBigInt, setRawTotalVolumeBigInt] = useState<bigint | null>(null) // Keep for currency conversion
-  const [dailyStats, setDailyStats] = useState<DailyStats[]>([])
-  const [chartTimeframe, setChartTimeframe] = useState<string>("7d") // '7d', '30d', '24h', '1h'
+  const [rawTotalVolumeBigInt, setRawTotalVolumeBigInt] = useState<bigint | null>(null)
+  const [dailyStats, setDailyStats] = useState<ProcessedDailyStats[]>([])
+  const [chartTimeframe, setChartTimeframe] = useState<string>("7d")
   const [exchangeRates, setExchangeRates] = useState<ExchangeRates>({
     NGN_PER_USD: 0,
     USD_PER_USDC: 0,
@@ -55,8 +60,6 @@ export default function DashboardOverviewPage() {
       }
       const data = await response.json()
       
-      // Extract rates from your API response
-      // Assuming your API returns rates for USDC, USDT, and NGN
       const rates: ExchangeRates = {
         NGN_PER_USD: data.rates?.NGN || data.NGN || 0,
         USD_PER_USDC: data.rates?.USDC || data.USDC || 0,
@@ -68,7 +71,6 @@ export default function DashboardOverviewPage() {
     } catch (error) {
       console.error('Error fetching exchange rates:', error)
       toast.error('Failed to fetch latest exchange rates, using fallback rates')
-      // Keep using default rates on error
     }
   }
 
@@ -81,11 +83,9 @@ export default function DashboardOverviewPage() {
       }
       const data = await response.json()
 
-      // The backend returns totalVolume as a string representing USDC/USDT (6 decimals)
       const volumeBigInt = BigInt(data.totalVolume)
-      setRawTotalVolumeBigInt(volumeBigInt) // Store raw bigint for currency conversion
+      setRawTotalVolumeBigInt(volumeBigInt)
       
-      // Format for display using 6 decimals for USDC/USDT
       const usdcAmount = parseFloat(formatUnits(volumeBigInt, 6))
       setTotalVolume(usdcAmount.toFixed(2))
       
@@ -111,15 +111,32 @@ export default function DashboardOverviewPage() {
       if (!response.ok) {
         throw new Error("Failed to fetch daily stats from backend")
       }
-      const data: { period: string; data: DailyStats[]; count: number } = await response.json()
+      const data: { period: string; data: any[]; count: number } = await response.json()
 
-      // Map backend data to match chart expectations
-      const processedData = data.data.map((item) => ({
+      // Process backend data
+      const processedData: ProcessedDailyStats[] = data.data.map((item: any) => ({
         ...item,
-        date: new Date(item.timestamp).toLocaleDateString("en-US", { month: "short", day: "numeric" }), // Format date for display
-        totalVolume: Number.parseFloat(formatUnits(BigInt(item.totalVolume), 6)), // Convert volume from string (6 decimals) to number
+        date: new Date(item.timestamp).toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+        totalVolume: Number.parseFloat(formatUnits(BigInt(item.totalVolume), 6)),
+        timestamp: item.timestamp
       }))
-      setDailyStats(processedData)
+
+      // Remove duplicate dates by keeping the latest entry for each date
+      const uniqueData: ProcessedDailyStats[] = []
+      
+      processedData.forEach((current) => {
+        const existingIndex = uniqueData.findIndex(item => item.date === current.date)
+        if (existingIndex >= 0) {
+          // Replace if current timestamp is newer
+          if (new Date(current.timestamp) > new Date(uniqueData[existingIndex].timestamp)) {
+            uniqueData[existingIndex] = current
+          }
+        } else {
+          uniqueData.push(current)
+        }
+      })
+
+      setDailyStats(uniqueData)
     } catch (error) {
       console.error("Error fetching daily stats:", error)
       toast.error("Failed to load chart data.")
@@ -128,7 +145,6 @@ export default function DashboardOverviewPage() {
   }
 
   useEffect(() => {
-    // Fetch exchange rates first, then dashboard stats
     fetchExchangeRates()
     fetchDashboardStats()
   }, [])
@@ -139,26 +155,22 @@ export default function DashboardOverviewPage() {
 
   useEffect(() => {
     if (rawTotalVolumeBigInt !== null) {
-      // Convert raw bigint to USDC/USDT amount using 6 decimals
       const usdcAmount = parseFloat(formatUnits(rawTotalVolumeBigInt, 6))
       
       let displayValue: string
 
       switch (currentCurrency) {
         case "USD":
-          // Convert USDC/USDT to USD using live rates
-          const usdValue = usdcAmount * exchangeRates.USD_PER_USDC // Assuming most volume is USDC
+          const usdValue = usdcAmount * exchangeRates.USD_PER_USDC
           displayValue = `$${usdValue.toFixed(2)}`
           break
         case "NGN":
-          // Convert to USD first, then to NGN using live rates
           const usdForNgn = usdcAmount * exchangeRates.USD_PER_USDC
           const ngnAmount = usdForNgn * exchangeRates.NGN_PER_USD
           displayValue = `₦${ngnAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
           break
         case "USDC":
         default:
-          // Display as USDC/USDT
           displayValue = `${usdcAmount.toFixed(2)} USDC/USDT`
           break
       }
@@ -174,13 +186,13 @@ export default function DashboardOverviewPage() {
     },
     successfulOrders: {
       label: "Successful Orders",
-      color: "hsl(var(--chart-2))",
+      color: "#10B981", // Green for successful
     },
     failedOrders: {
-      label: "Failed Orders",
-      color: "hsl(var(--chart-3))",
+      label: "Failed Orders", 
+      color: "#EF4444", // Red for failed
     },
-    orderCount: { // Changed from orderCounter to orderCount to match backend
+    orderCount: {
       label: "Total Orders",
       color: "hsl(var(--chart-4))",
     },
@@ -201,6 +213,7 @@ export default function DashboardOverviewPage() {
           </Button>
         </div>
       </div>
+      
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -224,6 +237,7 @@ export default function DashboardOverviewPage() {
             <p className="text-xs text-muted-foreground">Total value processed</p>
           </CardContent>
         </Card>
+        
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Successful Orders</CardTitle>
@@ -234,6 +248,7 @@ export default function DashboardOverviewPage() {
             <p className="text-xs text-muted-foreground">Orders marked successful</p>
           </CardContent>
         </Card>
+        
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Failed Orders</CardTitle>
@@ -244,6 +259,7 @@ export default function DashboardOverviewPage() {
             <p className="text-xs text-muted-foreground">Orders marked failed</p>
           </CardContent>
         </Card>
+        
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Order Counter</CardTitle>
@@ -285,15 +301,12 @@ export default function DashboardOverviewPage() {
                     <CartesianGrid vertical={false} strokeDasharray="3 3" />
                     <XAxis
                       dataKey="date"
-                      tickFormatter={(value) =>
-                        new Date(value).toLocaleDateString("en-US", { month: "short", day: "numeric" })
-                      }
                       tickLine={false}
                       axisLine={false}
                       tick={{ fontSize: 12 }}
                     />
                     <YAxis 
-                      tickFormatter={(value) => `${value.toFixed(0)}`} 
+                      tickFormatter={(value) => `$${value.toFixed(0)}`} 
                       tickLine={false} 
                       axisLine={false}
                       tick={{ fontSize: 12 }}
@@ -303,7 +316,7 @@ export default function DashboardOverviewPage() {
                     <Line
                       dataKey="totalVolume"
                       type="monotone"
-                      stroke="var(--color-totalVolume)"
+                      stroke="#3B82F6"
                       strokeWidth={2}
                       dot={false}
                     />
@@ -325,9 +338,6 @@ export default function DashboardOverviewPage() {
                     <CartesianGrid vertical={false} strokeDasharray="3 3" />
                     <XAxis
                       dataKey="date"
-                      tickFormatter={(value) =>
-                        new Date(value).toLocaleDateString("en-US", { month: "short", day: "numeric" })
-                      }
                       tickLine={false}
                       axisLine={false}
                       tick={{ fontSize: 12 }}
@@ -340,8 +350,8 @@ export default function DashboardOverviewPage() {
                     />
                     <ChartTooltip content={<ChartTooltipContent />} />
                     <Legend wrapperStyle={{ fontSize: '12px', paddingTop: '10px' }} />
-                    <Bar dataKey="successfulOrders" fill="var(--color-successfulOrders)" radius={4} />
-                    <Bar dataKey="failedOrders" fill="var(--color-failedOrders)" radius={4} />
+                    <Bar dataKey="successfulOrders" fill="#10B981" radius={4} />
+                    <Bar dataKey="failedOrders" fill="#EF4444" radius={4} />
                   </BarChart>
                 </ResponsiveContainer>
               </ChartContainer>
@@ -360,9 +370,6 @@ export default function DashboardOverviewPage() {
                     <CartesianGrid vertical={false} strokeDasharray="3 3" />
                     <XAxis
                       dataKey="date"
-                      tickFormatter={(value) =>
-                        new Date(value).toLocaleDateString("en-US", { month: "short", day: "numeric" })
-                      }
                       tickLine={false}
                       axisLine={false}
                       tick={{ fontSize: 12 }}
@@ -375,7 +382,7 @@ export default function DashboardOverviewPage() {
                     />
                     <ChartTooltip content={<ChartTooltipContent />} />
                     <Line
-                      dataKey="orderCount" // Changed from orderCounter to orderCount
+                      dataKey="orderCount"
                       type="monotone"
                       stroke="var(--color-orderCount)"
                       strokeWidth={2}
@@ -387,6 +394,7 @@ export default function DashboardOverviewPage() {
             </CardContent>
           </Card>
         </div>
+        
         <p className="text-sm text-muted-foreground mt-4">
           Note: Historical data for charts is now fetched from your backend API. Exchange rates updated from live price feed.
         </p>
