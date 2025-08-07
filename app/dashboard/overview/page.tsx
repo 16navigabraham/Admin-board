@@ -14,12 +14,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart"
 import { Bar, BarChart, Line, LineChart, XAxis, YAxis, CartesianGrid, Legend, ResponsiveContainer } from "recharts"
 
-// Exchange rates for currency conversion
-const EXCHANGE_RATES = {
-  NGN_PER_USD: 1500, // 1 USD = 1500 NGN (adjust as needed)
-}
-
 type Currency = "USDC" | "USD" | "NGN"
+
+interface ExchangeRates {
+  NGN_PER_USD: number;
+  USD_PER_USDC: number;
+  USD_PER_USDT: number;
+}
 
 interface DailyStats {
   date: string // ISO string from backend
@@ -40,7 +41,11 @@ export default function DashboardOverviewPage() {
   const [rawTotalVolumeBigInt, setRawTotalVolumeBigInt] = useState<bigint | null>(null) // Keep for currency conversion
   const [dailyStats, setDailyStats] = useState<DailyStats[]>([])
   const [chartTimeframe, setChartTimeframe] = useState<string>("7d") // '7d', '30d', '24h', '1h'
-  const [exchangeRates, setExchangeRates] = useState<ExchangeRates>(DEFAULT_EXCHANGE_RATES)
+  const [exchangeRates, setExchangeRates] = useState<ExchangeRates>({
+    NGN_PER_USD: 1500,
+    USD_PER_USDC: 1,
+    USD_PER_USDT: 1,
+  })
 
   const fetchExchangeRates = async () => {
     try {
@@ -53,9 +58,9 @@ export default function DashboardOverviewPage() {
       // Extract rates from your API response
       // Assuming your API returns rates for USDC, USDT, and NGN
       const rates: ExchangeRates = {
-        NGN_PER_USD: data.rates?.NGN || data.NGN || DEFAULT_EXCHANGE_RATES.NGN_PER_USD,
-        USD_PER_USDC: data.rates?.USDC || data.USDC || DEFAULT_EXCHANGE_RATES.USD_PER_USDC,
-        USD_PER_USDT: data.rates?.USDT || data.USDT || DEFAULT_EXCHANGE_RATES.USD_PER_USDT,
+        NGN_PER_USD: data.rates?.NGN || data.NGN || 1500,
+        USD_PER_USDC: data.rates?.USDC || data.USDC || 1,
+        USD_PER_USDT: data.rates?.USDT || data.USDT || 1,
       }
       
       setExchangeRates(rates)
@@ -143,7 +148,7 @@ export default function DashboardOverviewPage() {
         case "USD":
           // Convert USDC/USDT to USD using live rates
           const usdValue = usdcAmount * exchangeRates.USD_PER_USDC // Assuming most volume is USDC
-          displayValue = `${usdValue.toFixed(2)}`
+          displayValue = `$${usdValue.toFixed(2)}`
           break
         case "NGN":
           // Convert to USD first, then to NGN using live rates
@@ -185,14 +190,16 @@ export default function DashboardOverviewPage() {
     <div className="flex-1 p-4 md:p-8 overflow-auto">
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-3xl font-bold">Dashboard Overview</h1>
-        <Button onClick={fetchDashboardStats} disabled={isLoadingStats} variant="outline" size="sm">
-          {isLoadingStats ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
-          Refresh
-        </Button>
-        <Button onClick={fetchExchangeRates} variant="outline" size="sm" className="ml-2">
-          <RefreshCw className="mr-2 h-4 w-4" />
-          Update Rates
-        </Button>
+        <div className="flex gap-2">
+          <Button onClick={fetchDashboardStats} disabled={isLoadingStats} variant="outline" size="sm">
+            {isLoadingStats ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+            Refresh
+          </Button>
+          <Button onClick={fetchExchangeRates} variant="outline" size="sm">
+            <RefreshCw className="mr-2 h-4 w-4" />
+            Update Rates
+          </Button>
+        </div>
       </div>
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <Card>
