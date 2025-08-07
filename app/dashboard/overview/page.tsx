@@ -14,14 +14,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart"
 import { Bar, BarChart, Line, LineChart, XAxis, YAxis, CartesianGrid, Legend, ResponsiveContainer } from "recharts"
 
-// Placeholder exchange rates - In a real app, fetch these from an API
-// Assuming USDT/USDC are ~1 USD
+// Exchange rates for currency conversion
 const EXCHANGE_RATES = {
-  USD_PER_STABLECOIN: 1, // Example: 1 USDT/USDC = 1 USD
-  NGN_PER_USD: 1500, // Example: 1 USD = 1500 NGN
+  NGN_PER_USD: 1500, // 1 USD = 1500 NGN (adjust as needed)
 }
 
-type Currency = "STABLE" | "USD" | "NGN"
+type Currency = "USDC" | "USD" | "NGN"
 
 interface DailyStats {
   date: string // ISO string from backend
@@ -38,10 +36,36 @@ export default function DashboardOverviewPage() {
   const [totalFailedOrders, setTotalFailedOrders] = useState<string>("N/A")
   const [orderCounter, setOrderCounter] = useState<string>("N/A")
   const [isLoadingStats, setIsLoadingStats] = useState(false)
-  const [currentCurrency, setCurrentCurrency] = useState<Currency>("STABLE")
+  const [currentCurrency, setCurrentCurrency] = useState<Currency>("USDC")
   const [rawTotalVolumeBigInt, setRawTotalVolumeBigInt] = useState<bigint | null>(null) // Keep for currency conversion
   const [dailyStats, setDailyStats] = useState<DailyStats[]>([])
   const [chartTimeframe, setChartTimeframe] = useState<string>("7d") // '7d', '30d', '24h', '1h'
+  const [exchangeRates, setExchangeRates] = useState<ExchangeRates>(DEFAULT_EXCHANGE_RATES)
+
+  const fetchExchangeRates = async () => {
+    try {
+      const response = await fetch('https://paycrypt-margin-price.onrender.com')
+      if (!response.ok) {
+        throw new Error('Failed to fetch exchange rates')
+      }
+      const data = await response.json()
+      
+      // Extract rates from your API response
+      // Assuming your API returns rates for USDC, USDT, and NGN
+      const rates: ExchangeRates = {
+        NGN_PER_USD: data.rates?.NGN || data.NGN || DEFAULT_EXCHANGE_RATES.NGN_PER_USD,
+        USD_PER_USDC: data.rates?.USDC || data.USDC || DEFAULT_EXCHANGE_RATES.USD_PER_USDC,
+        USD_PER_USDT: data.rates?.USDT || data.USDT || DEFAULT_EXCHANGE_RATES.USD_PER_USDT,
+      }
+      
+      setExchangeRates(rates)
+      console.log('Exchange rates updated:', rates)
+    } catch (error) {
+      console.error('Error fetching exchange rates:', error)
+      toast.error('Failed to fetch latest exchange rates, using fallback rates')
+      // Keep using default rates on error
+    }
+  }
 
   const fetchDashboardStats = async () => {
     setIsLoadingStats(true)
@@ -52,10 +76,14 @@ export default function DashboardOverviewPage() {
       }
       const data = await response.json()
 
-      // The backend returns totalVolume as a string representing a large number (likely wei)
+      // The backend returns totalVolume as a string representing USDC/USDT (6 decimals)
       const volumeBigInt = BigInt(data.totalVolume)
       setRawTotalVolumeBigInt(volumeBigInt) // Store raw bigint for currency conversion
-      setTotalVolume(formatUnits(volumeBigInt, 18)) // Format for display, assuming 18 decimals for contract volume
+      
+      // Format for display using 6 decimals for USDC/USDT
+      const usdcAmount = parseFloat(formatUnits(volumeBigInt, 6))
+      setTotalVolume(usdcAmount.toFixed(2))
+      
       setTotalSuccessfulOrders(data.successfulOrders.toString())
       setTotalFailedOrders(data.failedOrders.toString())
       setOrderCounter(data.orderCount.toString())
@@ -84,7 +112,7 @@ export default function DashboardOverviewPage() {
       const processedData = data.data.map((item) => ({
         ...item,
         date: new Date(item.timestamp).toLocaleDateString("en-US", { month: "short", day: "numeric" }), // Format date for display
-        totalVolume: Number.parseFloat(formatUnits(BigInt(item.totalVolume), 18)), // Convert volume from string (wei) to number
+        totalVolume: Number.parseFloat(formatUnits(BigInt(item.totalVolume), 6)), // Convert volume from string (6 decimals) to number
       }))
       setDailyStats(processedData)
     } catch (error) {
@@ -95,6 +123,8 @@ export default function DashboardOverviewPage() {
   }
 
   useEffect(() => {
+    // Fetch exchange rates first, then dashboard stats
+    fetchExchangeRates()
     fetchDashboardStats()
   }, [])
 
@@ -104,27 +134,33 @@ export default function DashboardOverviewPage() {
 
   useEffect(() => {
     if (rawTotalVolumeBigInt !== null) {
-      let convertedValue: string
-      // Convert raw bigint to a number using 18 decimals (for contract volume)
-      const contractVolumeValue = Number.parseFloat(formatUnits(rawTotalVolumeBigInt, 18))
+      // Convert raw bigint to USDC/USDT amount using 6 decimals
+      const usdcAmount = parseFloat(formatUnits(rawTotalVolumeBigInt, 6))
+      
+      let displayValue: string
 
       switch (currentCurrency) {
         case "USD":
-          // Assuming contract volume is in a stablecoin equivalent to USD
-          convertedValue = (contractVolumeValue * EXCHANGE_RATES.USD_PER_STABLECOIN).toFixed(2)
-          setTotalVolume(`$${convertedValue}`)
+          // Convert USDC/USDT to USD using live rates
+          const usdValue = usdcAmount * exchangeRates.USD_PER_USDC // Assuming most volume is USDC
+          displayValue = `${usdValue.toFixed(2)}`
           break
         case "NGN":
-          convertedValue = (contractVolumeValue * EXCHANGE_RATES.USD_PER_STABLECOIN * EXCHANGE_RATES.NGN_PER_USD).toFixed(2)
-          setTotalVolume(`₦${convertedValue}`)
+          // Convert to USD first, then to NGN using live rates
+          const usdForNgn = usdcAmount * exchangeRates.USD_PER_USDC
+          const ngnAmount = usdForNgn * exchangeRates.NGN_PER_USD
+          displayValue = `₦${ngnAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
           break
-        case "STABLE":
+        case "USDC":
         default:
-          setTotalVolume(contractVolumeValue.toFixed(2)) // Display contract volume with 2 decimals
+          // Display as USDC/USDT
+          displayValue = `${usdcAmount.toFixed(2)} USDC/USDT`
           break
       }
+      
+      setTotalVolume(displayValue)
     }
-  }, [currentCurrency, rawTotalVolumeBigInt])
+  }, [currentCurrency, rawTotalVolumeBigInt, exchangeRates])
 
   const chartConfig = {
     totalVolume: {
@@ -153,6 +189,10 @@ export default function DashboardOverviewPage() {
           {isLoadingStats ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
           Refresh
         </Button>
+        <Button onClick={fetchExchangeRates} variant="outline" size="sm" className="ml-2">
+          <RefreshCw className="mr-2 h-4 w-4" />
+          Update Rates
+        </Button>
       </div>
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <Card>
@@ -164,11 +204,11 @@ export default function DashboardOverviewPage() {
             <div className="text-2xl font-bold flex items-center gap-2">
               {totalVolume}
               <Select value={currentCurrency} onValueChange={(value: Currency) => setCurrentCurrency(value)}>
-                <SelectTrigger className="w-[80px] h-8 text-sm">
+                <SelectTrigger className="w-[90px] h-8 text-sm">
                   <SelectValue placeholder="Currency" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="STABLE">USDT/USDC</SelectItem>
+                  <SelectItem value="USDC">USDC/USDT</SelectItem>
                   <SelectItem value="USD">USD</SelectItem>
                   <SelectItem value="NGN">NGN</SelectItem>
                 </SelectContent>
@@ -322,8 +362,13 @@ export default function DashboardOverviewPage() {
           </Card>
         </div>
         <p className="text-sm text-muted-foreground mt-4">
-          Note: Historical data for charts is now fetched from your backend API.
+          Note: Historical data for charts is now fetched from your backend API. Exchange rates updated from live price feed.
         </p>
+        <div className="text-xs text-muted-foreground mt-2 flex gap-4">
+          <span>USD/USDC: ${exchangeRates.USD_PER_USDC}</span>
+          <span>USD/USDT: ${exchangeRates.USD_PER_USDT}</span>
+          <span>NGN/USD: ₦{exchangeRates.NGN_PER_USD.toLocaleString()}</span>
+        </div>
       </div>
     </div>
   )
