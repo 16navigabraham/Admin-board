@@ -37,6 +37,24 @@ interface OrderHistoryItem {
   timestamp: string // ISO string from backend
 }
 
+// Interface for main platform database orders
+interface MainPlatformOrder {
+  _id: string
+  requestId: string
+  userAddress: string
+  transactionHash: string
+  serviceType: string
+  serviceID: string
+  customerIdentifier: string
+  amountNaira: number
+  cryptoUsed: number
+  cryptoSymbol: string
+  onChainStatus: string
+  vtpassStatus: string
+  createdAt: string
+  updatedAt: string
+}
+
 export default function ManageOrdersPage() {
   const [txnHash, setTxnHash] = useState<string>("")
   const [decodedData, setDecodedData] = useState<DecodedTxnData | null>(null)
@@ -45,6 +63,11 @@ export default function ManageOrdersPage() {
   const [isDecoding, setIsDecoding] = useState(false)
   const [isFetchingHistory, setIsFetchingHistory] = useState(false)
   const [historyAddress, setHistoryAddress] = useState<string>("")
+
+  // New state for main platform history
+  const [mainPlatformHistory, setMainPlatformHistory] = useState<MainPlatformOrder[]>([])
+  const [isFetchingMainPlatformHistory, setIsFetchingMainPlatformHistory] = useState(false)
+  const [mainPlatformHistoryAddress, setMainPlatformHistoryAddress] = useState<string>("")
 
   const [requestIdToDecode, setRequestIdToDecode] = useState<string>("")
   const [decodedRequestIdBytes32, setDecodedRequestIdBytes32] = useState<Hex | null>(null)
@@ -208,6 +231,37 @@ export default function ManageOrdersPage() {
     }
   }
 
+  // New function to fetch main platform history
+  const handleFetchMainPlatformHistory = async () => {
+    if (!mainPlatformHistoryAddress) {
+      toast.error("Please enter an address to fetch main platform history.")
+      return
+    }
+    setIsFetchingMainPlatformHistory(true)
+    setMainPlatformHistory([])
+    try {
+      const response = await fetch(`https://wagmicharge-backend.onrender.com/api/history?userAddress=${mainPlatformHistoryAddress}`)
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+      }
+      
+      const data = await response.json()
+      
+      if (data.success && data.orders) {
+        setMainPlatformHistory(data.orders)
+        toast.success("Main platform history fetched successfully!")
+      } else {
+        toast.error("Failed to fetch main platform history: Invalid response format")
+      }
+    } catch (error: any) {
+      console.error("Error fetching main platform history:", error)
+      toast.error(`Failed to fetch main platform history: ${error.message || error}`)
+    } finally {
+      setIsFetchingMainPlatformHistory(false)
+    }
+  }
+
   const handleDecodeRequestId = async () => {
     if (!requestIdToDecode) {
       toast.error("Please enter a Request ID.")
@@ -259,6 +313,20 @@ export default function ManageOrdersPage() {
   const handleCopy = (text: string, label: string) => {
     navigator.clipboard.writeText(text)
     toast.info(`${label} copied to clipboard.`)
+  }
+
+  const getStatusBadge = (status: string) => {
+    const statusClass = status === "successful" 
+      ? "bg-green-100 text-green-800" 
+      : status === "failed" 
+      ? "bg-red-100 text-red-800" 
+      : "bg-yellow-100 text-yellow-800"
+    
+    return (
+      <span className={`px-2 py-1 rounded-full text-xs font-semibold ${statusClass}`}>
+        {status}
+      </span>
+    )
   }
 
   return (
@@ -478,7 +546,7 @@ export default function ManageOrdersPage() {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card className="mb-6">
         <CardHeader>
           <CardTitle>Transaction History (User Specific - Database)</CardTitle>
           <CardDescription>
@@ -643,6 +711,164 @@ export default function ManageOrdersPage() {
             )}
             {transactionHistory.length === 0 && !isFetchingHistory && historyAddress && (
               <p className="text-center text-muted-foreground">No transactions found for this address.</p>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* New Main Platform History Card */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Main Platform Transaction History</CardTitle>
+          <CardDescription>
+            Displays application-level orders for a specific user, fetched from the main platform database.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-4">
+            <div>
+              <Label htmlFor="main-platform-history-address">User Address</Label>
+              <Input
+                id="main-platform-history-address"
+                placeholder="0x..."
+                value={mainPlatformHistoryAddress}
+                onChange={(e) => setMainPlatformHistoryAddress(e.target.value)}
+                className="mt-1"
+              />
+            </div>
+            <Button onClick={handleFetchMainPlatformHistory} disabled={isFetchingMainPlatformHistory}>
+              {isFetchingMainPlatformHistory ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Fetching...
+                </>
+              ) : (
+                "Fetch Main Platform History"
+              )}
+            </Button>
+            {mainPlatformHistory.length > 0 && (
+              <div className="mt-4 border rounded-md overflow-hidden">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Request ID</TableHead>
+                      <TableHead>Txn Hash</TableHead>
+                      <TableHead>Service Type</TableHead>
+                      <TableHead>Amount (₦)</TableHead>
+                      <TableHead>Crypto Used</TableHead>
+                      <TableHead>On-Chain Status</TableHead>
+                      <TableHead>VTPass Status</TableHead>
+                      <TableHead>Created At</TableHead>
+                      <TableHead>Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    <TooltipProvider delayDuration={0}>
+                      {mainPlatformHistory.map((order) => (
+                        <TableRow key={order._id}>
+                          <TableCell>
+                            <div className="flex items-center gap-2">
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <span className="font-mono text-xs cursor-help">
+                                    {order.requestId.length > 12 ? `${order.requestId.slice(0, 12)}...` : order.requestId}
+                                  </span>
+                                </TooltipTrigger>
+                                <TooltipContent>{order.requestId}</TooltipContent>
+                              </Tooltip>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-6 w-6"
+                                    onClick={() => handleCopy(order.requestId, "Request ID")}
+                                  >
+                                    <Copy className="h-3 w-3" />
+                                    <span className="sr-only">Copy Request ID</span>
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>Copy Request ID</TooltipContent>
+                              </Tooltip>
+                            </div>
+                          </TableCell>
+                          <TableCell className="font-medium">
+                            <div className="flex items-center gap-2">
+                              <a
+                                href={`https://basescan.org/tx/${order.transactionHash}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="underline"
+                              >
+                                {order.transactionHash.slice(0, 6)}...{order.transactionHash.slice(-4)}
+                              </a>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-6 w-6"
+                                    onClick={() => handleCopy(order.transactionHash, "Transaction Hash")}
+                                  >
+                                    <Copy className="h-3 w-3" />
+                                    <span className="sr-only">Copy Transaction Hash</span>
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>Copy Transaction Hash</TooltipContent>
+                              </Tooltip>
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <span className="capitalize">{order.serviceType}</span>
+                            {order.serviceID && (
+                              <span className="text-xs text-muted-foreground block">
+                                {order.serviceID}
+                              </span>
+                            )}
+                          </TableCell>
+                          <TableCell className="font-semibold">
+                            ₦{order.amountNaira.toLocaleString()}
+                          </TableCell>
+                          <TableCell>
+                            <span className="font-mono text-sm">
+                              {order.cryptoUsed.toFixed(6)} {order.cryptoSymbol}
+                            </span>
+                          </TableCell>
+                          <TableCell>
+                            {getStatusBadge(order.onChainStatus)}
+                          </TableCell>
+                          <TableCell>
+                            {getStatusBadge(order.vtpassStatus)}
+                          </TableCell>
+                          <TableCell className="text-sm">
+                            {new Date(order.createdAt).toLocaleString()}
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex gap-1">
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    variant="outline"
+                                    size="icon"
+                                    className="h-8 w-8 bg-transparent"
+                                    onClick={() => handleCopy(order.requestId, "Request ID")}
+                                  >
+                                    <Copy className="h-4 w-4" />
+                                    <span className="sr-only">Copy Request ID</span>
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>Copy Request ID</TooltipContent>
+                              </Tooltip>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TooltipProvider>
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+            {mainPlatformHistory.length === 0 && !isFetchingMainPlatformHistory && mainPlatformHistoryAddress && (
+              <p className="text-center text-muted-foreground">No transactions found for this address on the main platform.</p>
             )}
           </div>
         </CardContent>
