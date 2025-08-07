@@ -42,9 +42,9 @@ export default function DashboardOverviewPage() {
   const [dailyStats, setDailyStats] = useState<DailyStats[]>([])
   const [chartTimeframe, setChartTimeframe] = useState<string>("7d") // '7d', '30d', '24h', '1h'
   const [exchangeRates, setExchangeRates] = useState<ExchangeRates>({
-    NGN_PER_USD: 1500,
-    USD_PER_USDC: 1,
-    USD_PER_USDT: 1,
+    NGN_PER_USD: 0,
+    USD_PER_USDC: 0,
+    USD_PER_USDT: 0,
   })
 
   const fetchExchangeRates = async () => {
@@ -58,9 +58,9 @@ export default function DashboardOverviewPage() {
       // Extract rates from your API response
       // Assuming your API returns rates for USDC, USDT, and NGN
       const rates: ExchangeRates = {
-        NGN_PER_USD: data.rates?.NGN || data.NGN || 1500,
-        USD_PER_USDC: data.rates?.USDC || data.USDC || 1,
-        USD_PER_USDT: data.rates?.USDT || data.USDT || 1,
+        NGN_PER_USD: data.rates?.NGN || data.NGN || 0,
+        USD_PER_USDC: data.rates?.USDC || data.USDC || 0,
+        USD_PER_USDT: data.rates?.USDT || data.USDT || 0,
       }
       
       setExchangeRates(rates)
@@ -278,11 +278,11 @@ export default function DashboardOverviewPage() {
               <CardTitle>Total Volume Over Time</CardTitle>
               <CardDescription>Volume of transactions over the selected period.</CardDescription>
             </CardHeader>
-            <CardContent>
+            <CardContent className="p-4">
               <ChartContainer config={chartConfig} className="aspect-video h-[300px]">
                 <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={dailyStats}>
-                    <CartesianGrid vertical={false} />
+                  <LineChart data={dailyStats} margin={{ top: 20, right: 30, left: 20, bottom: 20 }}>
+                    <CartesianGrid vertical={false} strokeDasharray="3 3" />
                     <XAxis
                       dataKey="date"
                       tickFormatter={(value) =>
@@ -290,8 +290,15 @@ export default function DashboardOverviewPage() {
                       }
                       tickLine={false}
                       axisLine={false}
+                      tick={{ fontSize: 12 }}
                     />
-                    <YAxis tickFormatter={(value) => `$${value.toFixed(0)}`} tickLine={false} axisLine={false} />
+                    <YAxis 
+                      tickFormatter={(value) => `${value.toFixed(0)}`} 
+                      tickLine={false} 
+                      axisLine={false}
+                      tick={{ fontSize: 12 }}
+                      width={60}
+                    />
                     <ChartTooltip content={<ChartTooltipContent />} />
                     <Line
                       dataKey="totalVolume"
@@ -311,11 +318,11 @@ export default function DashboardOverviewPage() {
               <CardTitle>Orders Over Time</CardTitle>
               <CardDescription>Successful vs. Failed orders daily.</CardDescription>
             </CardHeader>
-            <CardContent>
+            <CardContent className="p-4">
               <ChartContainer config={chartConfig} className="aspect-video h-[300px]">
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={dailyStats}>
-                    <CartesianGrid vertical={false} />
+                  <BarChart data={dailyStats} margin={{ top: 20, right: 30, left: 20, bottom: 20 }}>
+                    <CartesianGrid vertical={false} strokeDasharray="3 3" />
                     <XAxis
                       dataKey="date"
                       tickFormatter={(value) =>
@@ -323,10 +330,16 @@ export default function DashboardOverviewPage() {
                       }
                       tickLine={false}
                       axisLine={false}
+                      tick={{ fontSize: 12 }}
                     />
-                    <YAxis tickLine={false} axisLine={false} />
+                    <YAxis 
+                      tickLine={false} 
+                      axisLine={false}
+                      tick={{ fontSize: 12 }}
+                      width={40}
+                    />
                     <ChartTooltip content={<ChartTooltipContent />} />
-                    <Legend />
+                    <Legend wrapperStyle={{ fontSize: '12px', paddingTop: '10px' }} />
                     <Bar dataKey="successfulOrders" fill="var(--color-successfulOrders)" radius={4} />
                     <Bar dataKey="failedOrders" fill="var(--color-failedOrders)" radius={4} />
                   </BarChart>
@@ -340,11 +353,11 @@ export default function DashboardOverviewPage() {
               <CardTitle>Total Orders Created</CardTitle>
               <CardDescription>Cumulative count of all orders created.</CardDescription>
             </CardHeader>
-            <CardContent>
+            <CardContent className="p-4">
               <ChartContainer config={chartConfig} className="aspect-video h-[300px]">
                 <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={dailyStats}>
-                    <CartesianGrid vertical={false} />
+                  <LineChart data={dailyStats} margin={{ top: 20, right: 30, left: 20, bottom: 20 }}>
+                    <CartesianGrid vertical={false} strokeDasharray="3 3" />
                     <XAxis
                       dataKey="date"
                       tickFormatter={(value) =>
@@ -352,8 +365,14 @@ export default function DashboardOverviewPage() {
                       }
                       tickLine={false}
                       axisLine={false}
+                      tick={{ fontSize: 12 }}
                     />
-                    <YAxis tickLine={false} axisLine={false} />
+                    <YAxis 
+                      tickLine={false} 
+                      axisLine={false}
+                      tick={{ fontSize: 12 }}
+                      width={40}
+                    />
                     <ChartTooltip content={<ChartTooltipContent />} />
                     <Line
                       dataKey="orderCount" // Changed from orderCounter to orderCount
