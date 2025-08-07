@@ -17,9 +17,8 @@ import { Bar, BarChart, Line, LineChart, XAxis, YAxis, CartesianGrid, Legend, Re
 type Currency = "USDC" | "USD" | "NGN"
 
 interface ExchangeRates {
-  NGN_PER_USD: number;
-  USD_PER_USDC: number;
-  USD_PER_USDT: number;
+  usd: number;
+  ngn: number;
 }
 
 interface DailyStats {
@@ -29,11 +28,11 @@ interface DailyStats {
   successfulOrders: number
   failedOrders: number
   successRate: number
-  timestamp?: string // Made optional since it comes from backend
+  timestamp?: string
 }
 
 interface ProcessedDailyStats extends DailyStats {
-  timestamp: string // Required for processed data
+  timestamp: string
 }
 
 export default function DashboardOverviewPage() {
@@ -47,27 +46,31 @@ export default function DashboardOverviewPage() {
   const [dailyStats, setDailyStats] = useState<ProcessedDailyStats[]>([])
   const [chartTimeframe, setChartTimeframe] = useState<string>("7d")
   const [exchangeRates, setExchangeRates] = useState<ExchangeRates>({
-    NGN_PER_USD: 0,
-    USD_PER_USDC: 0,
-    USD_PER_USDT: 0,
+    usd: 1,
+    ngn: 1500,
   })
 
   const fetchExchangeRates = async () => {
     try {
-      const response = await fetch('https://paycrypt-margin-price.onrender.com')
+      // Fetch prices for USDT and USDC from your API
+      const response = await fetch('https://paycrypt-margin-price.onrender.com/api/v3/simple/price?ids=tether,usd-coin&vs_currencies=usd,ngn')
+      
       if (!response.ok) {
         throw new Error('Failed to fetch exchange rates')
       }
+      
       const data = await response.json()
       
-      const rates: ExchangeRates = {
-        NGN_PER_USD: data.rates?.NGN || data.NGN || 0,
-        USD_PER_USDC: data.rates?.USDC || data.USDC || 0,
-        USD_PER_USDT: data.rates?.USDT || data.USDT || 0,
-      }
+      // Extract rates - using USDT as primary reference
+      const usdtRates = data.tether || data['tether'] || { usd: 1, ngn: 1500 }
       
-      setExchangeRates(rates)
-      console.log('Exchange rates updated:', rates)
+      setExchangeRates({
+        usd: usdtRates.usd || 1,
+        ngn: usdtRates.ngn || 1500,
+      })
+      
+      console.log('Exchange rates updated:', usdtRates)
+      toast.success('Exchange rates updated successfully!')
     } catch (error) {
       console.error('Error fetching exchange rates:', error)
       toast.error('Failed to fetch latest exchange rates, using fallback rates')
@@ -127,7 +130,6 @@ export default function DashboardOverviewPage() {
       processedData.forEach((current) => {
         const existingIndex = uniqueData.findIndex(item => item.date === current.date)
         if (existingIndex >= 0) {
-          // Replace if current timestamp is newer
           if (new Date(current.timestamp) > new Date(uniqueData[existingIndex].timestamp)) {
             uniqueData[existingIndex] = current
           }
@@ -161,17 +163,16 @@ export default function DashboardOverviewPage() {
 
       switch (currentCurrency) {
         case "USD":
-          const usdValue = usdcAmount * exchangeRates.USD_PER_USDC
-          displayValue = `$${usdValue.toFixed(2)}`
+          const usdValue = usdcAmount * exchangeRates.usd
+          displayValue = `$${usdValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
           break
         case "NGN":
-          const usdForNgn = usdcAmount * exchangeRates.USD_PER_USDC
-          const ngnAmount = usdForNgn * exchangeRates.NGN_PER_USD
-          displayValue = `₦${ngnAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+          const ngnValue = usdcAmount * exchangeRates.ngn
+          displayValue = `₦${ngnValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
           break
         case "USDC":
         default:
-          displayValue = `${usdcAmount.toFixed(2)} USDC/USDT`
+          displayValue = `${usdcAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDC`
           break
       }
       
@@ -182,19 +183,19 @@ export default function DashboardOverviewPage() {
   const chartConfig = {
     totalVolume: {
       label: "Total Volume",
-      color: "hsl(var(--chart-1))",
+      color: "#3B82F6",
     },
     successfulOrders: {
       label: "Successful Orders",
-      color: "#10B981", // Green for successful
+      color: "#10B981",
     },
     failedOrders: {
       label: "Failed Orders", 
-      color: "#EF4444", // Red for failed
+      color: "#EF4444",
     },
     orderCount: {
       label: "Total Orders",
-      color: "hsl(var(--chart-4))",
+      color: "#8B5CF6",
     },
   }
 
@@ -221,10 +222,12 @@ export default function DashboardOverviewPage() {
             <DollarSign className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold flex items-center gap-2">
-              {totalVolume}
+            <div className="flex flex-col gap-2">
+              <div className="text-2xl font-bold break-words">
+                {totalVolume}
+              </div>
               <Select value={currentCurrency} onValueChange={(value: Currency) => setCurrentCurrency(value)}>
-                <SelectTrigger className="w-[90px] h-8 text-sm">
+                <SelectTrigger className="w-full h-8 text-sm">
                   <SelectValue placeholder="Currency" />
                 </SelectTrigger>
                 <SelectContent>
@@ -234,7 +237,7 @@ export default function DashboardOverviewPage() {
                 </SelectContent>
               </Select>
             </div>
-            <p className="text-xs text-muted-foreground">Total value processed</p>
+            <p className="text-xs text-muted-foreground mt-2">Total value processed</p>
           </CardContent>
         </Card>
         
@@ -297,28 +300,40 @@ export default function DashboardOverviewPage() {
             <CardContent className="p-4">
               <ChartContainer config={chartConfig} className="aspect-video h-[300px]">
                 <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={dailyStats} margin={{ top: 20, right: 30, left: 20, bottom: 20 }}>
+                  <LineChart 
+                    data={dailyStats} 
+                    margin={{ top: 20, right: 40, left: 40, bottom: 40 }}
+                  >
                     <CartesianGrid vertical={false} strokeDasharray="3 3" />
                     <XAxis
                       dataKey="date"
                       tickLine={false}
                       axisLine={false}
-                      tick={{ fontSize: 12 }}
+                      tick={{ fontSize: 11 }}
+                      angle={-45}
+                      textAnchor="end"
+                      height={60}
+                      interval="preserveStartEnd"
                     />
                     <YAxis 
                       tickFormatter={(value) => `$${value.toFixed(0)}`} 
                       tickLine={false} 
                       axisLine={false}
-                      tick={{ fontSize: 12 }}
-                      width={60}
+                      tick={{ fontSize: 11 }}
+                      width={70}
+                      domain={['dataMin - 0.1', 'dataMax + 0.1']}
                     />
-                    <ChartTooltip content={<ChartTooltipContent />} />
+                    <ChartTooltip 
+                      content={<ChartTooltipContent />}
+                      formatter={(value: any) => [`$${Number(value).toFixed(2)}`, 'Volume']}
+                    />
                     <Line
                       dataKey="totalVolume"
                       type="monotone"
                       stroke="#3B82F6"
                       strokeWidth={2}
-                      dot={false}
+                      dot={{ fill: '#3B82F6', strokeWidth: 2, r: 4 }}
+                      activeDot={{ r: 6, stroke: '#3B82F6', strokeWidth: 2 }}
                     />
                   </LineChart>
                 </ResponsiveContainer>
@@ -334,22 +349,28 @@ export default function DashboardOverviewPage() {
             <CardContent className="p-4">
               <ChartContainer config={chartConfig} className="aspect-video h-[300px]">
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={dailyStats} margin={{ top: 20, right: 30, left: 20, bottom: 20 }}>
+                  <BarChart 
+                    data={dailyStats} 
+                    margin={{ top: 20, right: 40, left: 40, bottom: 40 }}
+                  >
                     <CartesianGrid vertical={false} strokeDasharray="3 3" />
                     <XAxis
                       dataKey="date"
                       tickLine={false}
                       axisLine={false}
-                      tick={{ fontSize: 12 }}
+                      tick={{ fontSize: 11 }}
+                      angle={-45}
+                      textAnchor="end"
+                      height={60}
                     />
                     <YAxis 
                       tickLine={false} 
                       axisLine={false}
-                      tick={{ fontSize: 12 }}
-                      width={40}
+                      tick={{ fontSize: 11 }}
+                      width={50}
                     />
                     <ChartTooltip content={<ChartTooltipContent />} />
-                    <Legend wrapperStyle={{ fontSize: '12px', paddingTop: '10px' }} />
+                    <Legend wrapperStyle={{ fontSize: '12px', paddingTop: '15px' }} />
                     <Bar dataKey="successfulOrders" fill="#10B981" radius={4} />
                     <Bar dataKey="failedOrders" fill="#EF4444" radius={4} />
                   </BarChart>
@@ -366,27 +387,34 @@ export default function DashboardOverviewPage() {
             <CardContent className="p-4">
               <ChartContainer config={chartConfig} className="aspect-video h-[300px]">
                 <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={dailyStats} margin={{ top: 20, right: 30, left: 20, bottom: 20 }}>
+                  <LineChart 
+                    data={dailyStats} 
+                    margin={{ top: 20, right: 40, left: 40, bottom: 40 }}
+                  >
                     <CartesianGrid vertical={false} strokeDasharray="3 3" />
                     <XAxis
                       dataKey="date"
                       tickLine={false}
                       axisLine={false}
-                      tick={{ fontSize: 12 }}
+                      tick={{ fontSize: 11 }}
+                      angle={-45}
+                      textAnchor="end"
+                      height={60}
                     />
                     <YAxis 
                       tickLine={false} 
                       axisLine={false}
-                      tick={{ fontSize: 12 }}
-                      width={40}
+                      tick={{ fontSize: 11 }}
+                      width={50}
                     />
                     <ChartTooltip content={<ChartTooltipContent />} />
                     <Line
                       dataKey="orderCount"
                       type="monotone"
-                      stroke="var(--color-orderCount)"
+                      stroke="#8B5CF6"
                       strokeWidth={2}
-                      dot={false}
+                      dot={{ fill: '#8B5CF6', strokeWidth: 2, r: 4 }}
+                      activeDot={{ r: 6, stroke: '#8B5CF6', strokeWidth: 2 }}
                     />
                   </LineChart>
                 </ResponsiveContainer>
@@ -399,9 +427,8 @@ export default function DashboardOverviewPage() {
           Note: Historical data for charts is now fetched from your backend API. Exchange rates updated from live price feed.
         </p>
         <div className="text-xs text-muted-foreground mt-2 flex gap-4">
-          <span>USD/USDC: ${exchangeRates.USD_PER_USDC}</span>
-          <span>USD/USDT: ${exchangeRates.USD_PER_USDT}</span>
-          <span>NGN/USD: ₦{exchangeRates.NGN_PER_USD.toLocaleString()}</span>
+          <span>USDT/USD: ${exchangeRates.usd}</span>
+          <span>USDT/NGN: ₦{exchangeRates.ngn.toLocaleString()}</span>
         </div>
       </div>
     </div>
