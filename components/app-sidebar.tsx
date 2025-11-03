@@ -15,11 +15,12 @@ import {
   SidebarTrigger,
   useSidebar,
 } from "@/components/ui/sidebar"
-import { Home, Package, Users, Settings, PanelLeft, Wallet, Moon, Sun, ListOrdered } from "lucide-react" // Added ListOrdered icon
+import { Home, Package, Users, Settings, PanelLeft, Wallet, Moon, Sun, ListOrdered, LogOut } from "lucide-react" // Added ListOrdered and LogOut icons
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useTheme } from "next-themes"
 import { ConnectButton } from "@rainbow-me/rainbowkit"
+import { paycryptAPI } from "@/lib/auth"
 
 const menuItems = [
   {
@@ -101,6 +102,24 @@ export function AppSidebar() {
                 <SidebarMenuButton onClick={() => setTheme(theme === "dark" ? "light" : "dark")}>
                   {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
                   <span>Toggle Theme</span>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  onClick={async () => {
+                    try {
+                      await paycryptAPI.logout()
+                    } catch (err) {
+                      // ignore
+                    }
+                    // client-side redirect
+                    if (typeof window !== 'undefined') {
+                      window.location.replace('/')
+                    }
+                  }}
+                >
+                  <LogOut className="h-4 w-4" />
+                  <span>Sign Out</span>
                 </SidebarMenuButton>
               </SidebarMenuItem>
             </SidebarMenu>

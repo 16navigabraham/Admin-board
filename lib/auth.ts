@@ -22,12 +22,20 @@ class PaycryptAPIClient {
     this.token = token
     if (typeof window !== 'undefined') {
       localStorage.setItem('paycrypt_token', token)
+      // Also store in cookies for server-side access
+      document.cookie = `paycrypt_token=${token}; path=/; max-age=${60 * 60 * 24 * 7}; SameSite=Lax`
     }
   }
 
   getStoredToken(): string | null {
     if (typeof window !== 'undefined') {
-      return localStorage.getItem('paycrypt_token')
+      // Try localStorage first
+      const localToken = localStorage.getItem('paycrypt_token')
+      if (localToken) return localToken
+      
+      // Fallback to cookies
+      const cookieMatch = document.cookie.match(/paycrypt_token=([^;]+)/)
+      return cookieMatch ? cookieMatch[1] : null
     }
     return null
   }
@@ -36,14 +44,16 @@ class PaycryptAPIClient {
     this.token = null
     if (typeof window !== 'undefined') {
       localStorage.removeItem('paycrypt_token')
+      // Also clear the cookie
+      document.cookie = 'paycrypt_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT'
     }
   }
 
   async request(endpoint: string, options: RequestInit = {}) {
     const url = `${this.baseURL}${endpoint}`
-    const headers: HeadersInit = {
+    const headers: Record<string, string> = {
       'Content-Type': 'application/json',
-      ...options.headers,
+      ...(options.headers as Record<string, string>),
     }
 
     const currentToken = this.token || this.getStoredToken()
