@@ -14,6 +14,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart"
 import { Bar, BarChart, Line, LineChart, XAxis, YAxis, CartesianGrid, Legend, ResponsiveContainer } from "recharts"
 
+// Create public client for contract interactions
+const publicClient = createPublicClient({
+  chain: base,
+  transport: http(),
+})
+
 type Currency = "USDC" | "USD" | "NGN"
 
 interface ExchangeRates {
@@ -80,17 +86,88 @@ export default function DashboardOverviewPage() {
   const fetchDashboardStats = async () => {
     setIsLoadingStats(true)
     try {
+      // Fetch from tokens endpoint to get individual token data
       const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_API_URL}/api/stats`)
       if (!response.ok) {
         throw new Error("Failed to fetch dashboard stats from backend")
       }
       const data = await response.json()
 
-      const volumeBigInt = BigInt(data.totalVolume)
-      setRawTotalVolumeBigInt(volumeBigInt)
-      
-      const usdcAmount = parseFloat(formatUnits(volumeBigInt, 6))
-      setTotalVolume(usdcAmount.toFixed(2))
+      // Also fetch individual token volumes to calculate proper total
+      try {
+        // Get supported tokens from contract to calculate accurate total volume
+        const tokenAddresses = (await publicClient.readContract({
+          address: CONTRACT_ADDRESS,
+          abi: CONTRACT_ABI,
+          functionName: "getSupportedTokens",
+        })) as any[]
+
+        if (tokenAddresses && tokenAddresses.length > 0) {
+          // Fetch details for each token
+          const tokenDetailsPromises = tokenAddresses.map(async (address) => {
+            try {
+              const details = (await publicClient.readContract({
+                address: CONTRACT_ADDRESS,
+                abi: CONTRACT_ABI,
+                functionName: "getTokenDetails",
+                args: [address],
+              })) as any
+
+              return {
+                address,
+                name: details.name,
+                decimals: Number(details.decimals),
+                totalVolume: details.totalVolume,
+                isStablecoin: details.name === 'USDC' || details.name === 'USDT' || details.name === 'DAI'
+              }
+            } catch (error) {
+              console.error(`Error fetching details for token ${address}:`, error)
+              return null
+            }
+          })
+
+          const resolvedTokens = (await Promise.all(tokenDetailsPromises)).filter(token => token !== null)
+          
+          // Calculate total volume by converting all stablecoins to USD equivalent
+          let totalVolumeInUSD = 0
+          let volumeBreakdown: string[] = []
+
+          resolvedTokens.forEach((token) => {
+            if (token) {
+              const tokenVolume = parseFloat(formatUnits(token.totalVolume, token.decimals))
+              
+              if (token.isStablecoin) {
+                // Stablecoins: treat as 1:1 USD
+                totalVolumeInUSD += tokenVolume
+                volumeBreakdown.push(`${tokenVolume.toFixed(2)} ${token.name}`)
+              } else {
+                // Non-stablecoins: you might want to fetch their USD price or exclude them
+                // For now, we'll show them separately in the breakdown but not add to total
+                if (tokenVolume > 0) {
+                  volumeBreakdown.push(`${tokenVolume.toFixed(2)} ${token.name} (non-USD)`)
+                }
+              }
+            }
+          })
+
+          setRawTotalVolumeBigInt(BigInt(Math.floor(totalVolumeInUSD * 1000000))) // Convert back to 6-decimal representation
+          console.log('Volume breakdown:', volumeBreakdown.join(', '))
+          
+          if (volumeBreakdown.length > 0) {
+            toast.success(`Volume calculated from: ${volumeBreakdown.join(', ')}`)
+          }
+        } else {
+          // Fallback to backend data if no tokens found
+          const volumeBigInt = BigInt(data.totalVolume)
+          setRawTotalVolumeBigInt(volumeBigInt)
+        }
+      } catch (contractError) {
+        console.error("Error fetching contract token data:", contractError)
+        // Fallback to backend data
+        const volumeBigInt = BigInt(data.totalVolume)
+        setRawTotalVolumeBigInt(volumeBigInt)
+        toast.warning("Using backend volume data (may include non-USD tokens)")
+      }
       
       setTotalSuccessfulOrders(data.successfulOrders.toString())
       setTotalFailedOrders(data.failedOrders.toString())
@@ -172,7 +249,7 @@ export default function DashboardOverviewPage() {
           break
         case "USDC":
         default:
-          displayValue = `${usdcAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDC`
+          displayValue = `$${usdcAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD`
           break
       }
       
@@ -231,13 +308,13 @@ export default function DashboardOverviewPage() {
                   <SelectValue placeholder="Currency" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="USDC">USDC/USDT</SelectItem>
+                  <SelectItem value="USDC">USD Equivalent (Stablecoins Only)</SelectItem>
                   <SelectItem value="USD">USD</SelectItem>
                   <SelectItem value="NGN">NGN</SelectItem>
                 </SelectContent>
               </Select>
             </div>
-            <p className="text-xs text-muted-foreground mt-2">Total value processed</p>
+            <p className="text-xs text-muted-foreground mt-2">Stablecoin value processed (USDC/USDT/DAI)</p>
           </CardContent>
         </Card>
         
