@@ -193,13 +193,85 @@ export default function DashboardOverviewPage() {
       }
       const data: { period: string; data: any[]; count: number } = await response.json()
 
-      // Process backend data
-      const processedData: ProcessedDailyStats[] = data.data.map((item: any) => ({
-        ...item,
-        date: new Date(item.timestamp).toLocaleDateString("en-US", { month: "short", day: "numeric" }),
-        totalVolume: Number.parseFloat(formatUnits(BigInt(item.totalVolume), 6)),
-        timestamp: item.timestamp
-      }))
+      // Get token information for proper volume calculation
+      let tokenInfoMap: { [address: string]: { name: string; decimals: number; isStablecoin: boolean } } = {}
+      
+      try {
+        // Fetch supported tokens to build a map
+        const tokenAddresses = (await publicClient.readContract({
+          address: CONTRACT_ADDRESS,
+          abi: CONTRACT_ABI,
+          functionName: "getSupportedTokens",
+        })) as any[]
+
+        if (tokenAddresses && tokenAddresses.length > 0) {
+          const tokenDetailsPromises = tokenAddresses.map(async (address) => {
+            try {
+              const details = (await publicClient.readContract({
+                address: CONTRACT_ADDRESS,
+                abi: CONTRACT_ABI,
+                functionName: "getTokenDetails",
+                args: [address],
+              })) as any
+
+              return {
+                address,
+                name: details.name,
+                decimals: Number(details.decimals),
+                isStablecoin: details.name === 'USDC' || details.name === 'USDT' || details.name === 'DAI'
+              }
+            } catch (error) {
+              return null
+            }
+          })
+
+          const resolvedTokens = (await Promise.all(tokenDetailsPromises)).filter(token => token !== null)
+          
+          // Build token info map
+          resolvedTokens.forEach(token => {
+            if (token) {
+              tokenInfoMap[token.address.toLowerCase()] = {
+                name: token.name,
+                decimals: token.decimals,
+                isStablecoin: token.isStablecoin
+              }
+            }
+          })
+        }
+      } catch (error) {
+        console.warn("Could not fetch token details for chart, using fallback calculation")
+      }
+
+      // Process backend data with proper volume calculation
+      const processedData: ProcessedDailyStats[] = data.data.map((item: any) => {
+        let adjustedVolume: number
+
+        // If we have token breakdown data in the API response, use it
+        if (item.volumeByToken && Object.keys(tokenInfoMap).length > 0) {
+          let stablecoinVolumeTotal = 0
+          
+          // Process each token's volume
+          Object.entries(item.volumeByToken).forEach(([tokenAddress, volume]: [string, any]) => {
+            const tokenInfo = tokenInfoMap[tokenAddress.toLowerCase()]
+            if (tokenInfo && tokenInfo.isStablecoin) {
+              const tokenVolume = parseFloat(formatUnits(BigInt(volume), tokenInfo.decimals))
+              stablecoinVolumeTotal += tokenVolume
+            }
+          })
+          
+          adjustedVolume = stablecoinVolumeTotal
+        } else {
+          // Fallback: assume it's all stablecoin volume (6 decimals)
+          adjustedVolume = Number.parseFloat(formatUnits(BigInt(item.totalVolume), 6))
+        }
+
+        return {
+          ...item,
+          date: new Date(item.timestamp).toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+          totalVolume: adjustedVolume,
+          timestamp: item.timestamp
+        }
+      })
 
       // Remove duplicate dates by keeping the latest entry for each date
       const uniqueData: ProcessedDailyStats[] = []
@@ -259,7 +331,7 @@ export default function DashboardOverviewPage() {
 
   const chartConfig = {
     totalVolume: {
-      label: "Total Volume",
+      label: "Stablecoin Volume",
       color: "#3B82F6",
     },
     successfulOrders: {
@@ -371,8 +443,8 @@ export default function DashboardOverviewPage() {
         <div className="grid gap-6 lg:grid-cols-2">
           <Card>
             <CardHeader>
-              <CardTitle>Total Volume Over Time</CardTitle>
-              <CardDescription>Volume of transactions over the selected period.</CardDescription>
+              <CardTitle>Stablecoin Volume Over Time</CardTitle>
+              <CardDescription>Volume of stablecoin transactions (USDC/USDT/DAI) over the selected period.</CardDescription>
             </CardHeader>
             <CardContent className="p-4">
               <ChartContainer config={chartConfig} className="aspect-video h-[300px]">
@@ -402,7 +474,7 @@ export default function DashboardOverviewPage() {
                     />
                     <ChartTooltip 
                       content={<ChartTooltipContent />}
-                      formatter={(value: any) => [`$${Number(value).toFixed(2)}`, 'Volume']}
+                      formatter={(value: any) => [`$${Number(value).toFixed(2)}`, 'Stablecoin Volume']}
                     />
                     <Line
                       dataKey="totalVolume"
