@@ -51,6 +51,7 @@ export default function DashboardOverviewPage() {
   const [rawTotalVolumeBigInt, setRawTotalVolumeBigInt] = useState<bigint | null>(null)
   const [dailyStats, setDailyStats] = useState<ProcessedDailyStats[]>([])
   const [chartTimeframe, setChartTimeframe] = useState<string>("7d")
+  const [stablecoinRatio, setStablecoinRatio] = useState<number>(1) // Ratio of stablecoin volume to total volume
   const [exchangeRates, setExchangeRates] = useState<ExchangeRates>({
     usd: 1,
     ngn: 1500,
@@ -151,6 +152,15 @@ export default function DashboardOverviewPage() {
           })
 
           setRawTotalVolumeBigInt(BigInt(Math.floor(totalVolumeInUSD * 1000000))) // Convert back to 6-decimal representation
+          
+          // Calculate the ratio of stablecoin volume to raw backend volume for chart scaling
+          const rawBackendVolume = parseFloat(formatUnits(BigInt(data.totalVolume), 6))
+          if (rawBackendVolume > 0) {
+            const ratio = totalVolumeInUSD / rawBackendVolume
+            setStablecoinRatio(ratio)
+            console.log(`Stablecoin ratio: ${ratio} (${totalVolumeInUSD} / ${rawBackendVolume})`)
+          }
+          
           console.log('Volume breakdown:', volumeBreakdown.join(', '))
           
           if (volumeBreakdown.length > 0) {
@@ -173,6 +183,9 @@ export default function DashboardOverviewPage() {
       setTotalFailedOrders(data.failedOrders.toString())
       setOrderCounter(data.orderCount.toString())
       toast.success("Dashboard stats updated!")
+      
+      // Trigger chart refresh now that we have updated stablecoin ratio
+      setTimeout(() => fetchDailyStats(chartTimeframe), 100)
     } catch (error) {
       console.error("Error fetching dashboard stats:", error)
       toast.error("Failed to fetch dashboard stats.")
@@ -193,11 +206,11 @@ export default function DashboardOverviewPage() {
       }
       const data: { period: string; data: any[]; count: number } = await response.json()
 
-      // Get token information for proper volume calculation
-      let tokenInfoMap: { [address: string]: { name: string; decimals: number; isStablecoin: boolean } } = {}
-      
+      // Apply the same stablecoin filtering logic as the main total volume
+      let processedData: ProcessedDailyStats[] = []
+
+      // Try to get token information for proper filtering (same as main volume)
       try {
-        // Fetch supported tokens to build a map
         const tokenAddresses = (await publicClient.readContract({
           address: CONTRACT_ADDRESS,
           abi: CONTRACT_ABI,
@@ -227,51 +240,52 @@ export default function DashboardOverviewPage() {
 
           const resolvedTokens = (await Promise.all(tokenDetailsPromises)).filter(token => token !== null)
           
-          // Build token info map
-          resolvedTokens.forEach(token => {
-            if (token) {
-              tokenInfoMap[token.address.toLowerCase()] = {
-                name: token.name,
-                decimals: token.decimals,
-                isStablecoin: token.isStablecoin
-              }
+          // Process each data point the same way as main volume calculation
+          processedData = data.data.map((item: any) => {
+            let stablecoinVolumeForDay = 0
+
+            // If we have individual token volume data, use that
+            if (item.volumeByToken && Object.keys(item.volumeByToken).length > 0) {
+              Object.entries(item.volumeByToken).forEach(([tokenAddress, volume]: [string, any]) => {
+                const token = resolvedTokens.find(t => t && t.address.toLowerCase() === tokenAddress.toLowerCase())
+                if (token && token.isStablecoin) {
+                  const tokenVolume = parseFloat(formatUnits(BigInt(volume), token.decimals))
+                  stablecoinVolumeForDay += tokenVolume
+                }
+              })
+            } else {
+              // Fallback: Check if this is likely stablecoin volume by comparing with current total
+              // Use the calculated stablecoin ratio from the main volume calculation
+              const rawVolume = Number.parseFloat(formatUnits(BigInt(item.totalVolume), 6))
+              stablecoinVolumeForDay = rawVolume * stablecoinRatio
+            }
+
+            return {
+              ...item,
+              date: new Date(item.timestamp).toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+              totalVolume: stablecoinVolumeForDay,
+              timestamp: item.timestamp
             }
           })
+        } else {
+          // Ultimate fallback: use raw data but scaled using the stablecoin ratio
+          processedData = data.data.map((item: any) => ({
+            ...item,
+            date: new Date(item.timestamp).toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+            totalVolume: Number.parseFloat(formatUnits(BigInt(item.totalVolume), 6)) * stablecoinRatio,
+            timestamp: item.timestamp
+          }))
         }
       } catch (error) {
-        console.warn("Could not fetch token details for chart, using fallback calculation")
-      }
-
-      // Process backend data with proper volume calculation
-      const processedData: ProcessedDailyStats[] = data.data.map((item: any) => {
-        let adjustedVolume: number
-
-        // If we have token breakdown data in the API response, use it
-        if (item.volumeByToken && Object.keys(tokenInfoMap).length > 0) {
-          let stablecoinVolumeTotal = 0
-          
-          // Process each token's volume
-          Object.entries(item.volumeByToken).forEach(([tokenAddress, volume]: [string, any]) => {
-            const tokenInfo = tokenInfoMap[tokenAddress.toLowerCase()]
-            if (tokenInfo && tokenInfo.isStablecoin) {
-              const tokenVolume = parseFloat(formatUnits(BigInt(volume), tokenInfo.decimals))
-              stablecoinVolumeTotal += tokenVolume
-            }
-          })
-          
-          adjustedVolume = stablecoinVolumeTotal
-        } else {
-          // Fallback: assume it's all stablecoin volume (6 decimals)
-          adjustedVolume = Number.parseFloat(formatUnits(BigInt(item.totalVolume), 6))
-        }
-
-        return {
+        console.warn("Could not apply token filtering to chart data, using scaled raw data")
+        // Final fallback: use raw data but scaled using the stablecoin ratio
+        processedData = data.data.map((item: any) => ({
           ...item,
           date: new Date(item.timestamp).toLocaleDateString("en-US", { month: "short", day: "numeric" }),
-          totalVolume: adjustedVolume,
+          totalVolume: Number.parseFloat(formatUnits(BigInt(item.totalVolume), 6)) * stablecoinRatio,
           timestamp: item.timestamp
-        }
-      })
+        }))
+      }
 
       // Remove duplicate dates by keeping the latest entry for each date
       const uniqueData: ProcessedDailyStats[] = []
@@ -288,6 +302,7 @@ export default function DashboardOverviewPage() {
       })
 
       setDailyStats(uniqueData)
+      console.log('Chart data processed:', uniqueData.slice(0, 3)) // Log first 3 entries for debugging
     } catch (error) {
       console.error("Error fetching daily stats:", error)
       toast.error("Failed to load chart data.")
@@ -301,8 +316,11 @@ export default function DashboardOverviewPage() {
   }, [])
 
   useEffect(() => {
-    fetchDailyStats(chartTimeframe)
-  }, [chartTimeframe])
+    // Only fetch chart data after we have calculated the stablecoin ratio
+    if (stablecoinRatio > 0) {
+      fetchDailyStats(chartTimeframe)
+    }
+  }, [chartTimeframe, stablecoinRatio])
 
   useEffect(() => {
     if (rawTotalVolumeBigInt !== null) {
