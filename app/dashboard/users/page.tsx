@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { toast } from "sonner"
 import { CONTRACT_ABI, getContractAddressByKey, getChainConfig } from "@/config/contract"
-import { useWriteContract, useWaitForTransactionReceipt } from "wagmi"
+import { useWriteContract, useWaitForTransactionReceipt, useSwitchChain } from "wagmi"
 import { useChain } from "@/contexts/chain-context"
 import { Badge } from "@/components/ui/badge"
 import { Loader2, Network } from "lucide-react"
@@ -67,6 +67,8 @@ export default function ManageUsersPage() {
     hash,
   })
 
+  const { switchChain } = useSwitchChain()
+
   useEffect(() => {
     if (isConfirmed) {
       toast.success("Transaction confirmed!")
@@ -110,6 +112,11 @@ export default function ManageUsersPage() {
       return
     }
     try {
+      // Switch to the correct chain first
+      if (chainConfig?.chainId && switchChain) {
+        await switchChain({ chainId: chainConfig.chainId })
+      }
+      
       writeContract({
         address: contractAddress,
         abi: CONTRACT_ABI,
@@ -130,6 +137,11 @@ export default function ManageUsersPage() {
       return
     }
     try {
+      // Switch to the correct chain first
+      if (chainConfig?.chainId && switchChain) {
+        await switchChain({ chainId: chainConfig.chainId })
+      }
+      
       writeContract({
         address: contractAddress,
         abi: CONTRACT_ABI,

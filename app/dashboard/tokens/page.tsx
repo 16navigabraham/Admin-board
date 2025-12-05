@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { toast } from "sonner"
 import { CONTRACT_ABI, getContractAddressByKey, getChainConfig } from "@/config/contract"
-import { useWriteContract, useWaitForTransactionReceipt } from "wagmi"
+import { useWriteContract, useWaitForTransactionReceipt, useSwitchChain } from "wagmi"
 import { useChain } from "@/contexts/chain-context"
 import { Badge } from "@/components/ui/badge"
 import { Network } from "lucide-react"
@@ -89,6 +89,8 @@ export default function ManageTokensPage() {
   const { isLoading: isConfirming, isSuccess: isConfirmed } = useWaitForTransactionReceipt({
     hash,
   })
+
+  const { switchChain } = useSwitchChain()
 
   const fetchSupportedTokens = async () => {
     setIsLoadingTokens(true)
@@ -201,6 +203,11 @@ export default function ManageTokensPage() {
       return
     }
     try {
+      // Switch to the correct chain first
+      if (chainConfig?.chainId && switchChain) {
+        await switchChain({ chainId: chainConfig.chainId })
+      }
+      
       writeContract({
         address: contractAddress,
         abi: CONTRACT_ABI,
@@ -222,6 +229,11 @@ export default function ManageTokensPage() {
     }
     
     try {
+      // Switch to the correct chain first
+      if (chainConfig?.chainId && switchChain) {
+        await switchChain({ chainId: chainConfig.chainId })
+      }
+      
       // Parse the limit with the correct decimals for the selected token
       const parsedLimit = parseUnits(newLimit, selectedTokenForLimit.decimals)
       
@@ -245,6 +257,11 @@ export default function ManageTokensPage() {
       return
     }
     try {
+      // Switch to the correct chain first
+      if (chainConfig?.chainId && switchChain) {
+        await switchChain({ chainId: chainConfig.chainId })
+      }
+      
       writeContract({
         address: contractAddress,
         abi: CONTRACT_ABI,

@@ -9,7 +9,7 @@ import { toast } from "sonner"
 import { CONTRACT_ABI, getContractAddressByKey, getExplorerUrl, getChainConfig } from "@/config/contract"
 import { createPublicClient, http, decodeFunctionData, type Hex, decodeEventLog, stringToBytes, pad, toHex, formatUnits } from "viem"
 import { base, celo } from "viem/chains"
-import { useWriteContract, useWaitForTransactionReceipt } from "wagmi"
+import { useWriteContract, useWaitForTransactionReceipt, useSwitchChain } from "wagmi"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Loader2, Copy, Search, Network } from 'lucide-react'
 import { getUserHistory } from "@/lib/api"
@@ -92,6 +92,8 @@ export default function ManageOrdersPage() {
   const { isLoading: isConfirming, isSuccess: isConfirmed } = useWaitForTransactionReceipt({
     hash,
   })
+
+  const { switchChain } = useSwitchChain()
 
   // Create dynamic public client based on selected chain
   const publicClient = useMemo(() => {
@@ -210,6 +212,12 @@ export default function ManageOrdersPage() {
       return
     }
     try {
+      // Switch to the correct chain first
+      if (chainConfig?.chainId && switchChain) {
+        await switchChain({ chainId: chainConfig.chainId })
+        toast.info(`Switched to ${chainConfig.name} network`)
+      }
+      
       writeContract({
         address: contractAddress,
         abi: CONTRACT_ABI,
@@ -230,6 +238,12 @@ export default function ManageOrdersPage() {
       return
     }
     try {
+      // Switch to the correct chain first
+      if (chainConfig?.chainId && switchChain) {
+        await switchChain({ chainId: chainConfig.chainId })
+        toast.info(`Switched to ${chainConfig.name} network`)
+      }
+      
       writeContract({
         address: contractAddress,
         abi: CONTRACT_ABI,
