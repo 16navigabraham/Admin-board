@@ -89,12 +89,11 @@ export default function DashboardOverviewPage() {
   const fetchDashboardStats = async () => {
     setIsLoadingStats(true)
     try {
-      // Try to fetch stats from the /api/stats endpoint
-      // If it fails or returns empty, we'll use fallback values
       let successfulOrders = 0
       let failedOrders = 0
       let orderCount = 0
 
+      // First, try to fetch stats from /api/stats endpoint
       try {
         const statsResponse = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_API_URL}/api/stats`)
         if (statsResponse.ok) {
@@ -112,10 +111,12 @@ export default function DashboardOverviewPage() {
             ? (typeof statsData.orderCount === 'string' ? parseInt(statsData.orderCount, 10) : statsData.orderCount)
             : 0
 
-          console.log('✅ Stats parsed:', { orderCount, successfulOrders, failedOrders })
+          console.log('✅ Stats parsed from /api/stats:', { orderCount, successfulOrders, failedOrders })
+        } else {
+          console.log('⚠️ Stats endpoint returned non-200 status:', statsResponse.status)
         }
       } catch (statsError) {
-        console.log('⚠️ Stats endpoint not available, will use volume data', statsError)
+        console.log('⚠️ Stats endpoint error:', statsError)
       }
 
       // Always fetch volume data - it's the primary data source
@@ -134,14 +135,14 @@ export default function DashboardOverviewPage() {
       const volumeData = await volumeResponse.json()
 
       // Set stats - use parsed values or 0 as fallback
-      if (!isNaN(successfulOrders)) setTotalSuccessfulOrders(successfulOrders.toLocaleString())
-      else setTotalSuccessfulOrders("0")
+      if (!isNaN(successfulOrders) && successfulOrders > 0) setTotalSuccessfulOrders(successfulOrders.toLocaleString())
+      else setTotalSuccessfulOrders("--")
       
-      if (!isNaN(failedOrders)) setTotalFailedOrders(failedOrders.toLocaleString())
-      else setTotalFailedOrders("0")
+      if (!isNaN(failedOrders) && failedOrders > 0) setTotalFailedOrders(failedOrders.toLocaleString())
+      else setTotalFailedOrders("--")
       
-      if (!isNaN(orderCount)) setOrderCounter(orderCount.toLocaleString())
-      else setOrderCounter("0")
+      if (!isNaN(orderCount) && orderCount > 0) setOrderCounter(orderCount.toLocaleString())
+      else setOrderCounter("--")
 
       // Parse volume data: handles formatted strings with commas
       if (volumeData.success && volumeData.data) {
@@ -178,7 +179,7 @@ export default function DashboardOverviewPage() {
         }
         
         const chainInfo = showAllChains ? 'all chains' : chainConfig?.name || 'selected chain'
-        console.log(`📊 Volume (${chainInfo}): $${volumeUSD.toLocaleString('en-US', { maximumFractionDigits: 2 })} USD / ₦${volumeNGN.toLocaleString('en-US', { maximumFractionDigits: 0 })} NGN`)
+        console.log(`📊 Volume (${chainInfo}): $${volumeUSD.toLocaleString('en-US', { maximumFractionDigits: 2 })} USD / ₦${volumeNGN.toLocaleString('en-US', { maximumFractionDigits: 2 })} NGN`)
         console.log(`🪙 Tracking ${volumeData.data.tokenCount} tokens`)
         console.log(`📈 Stats: ${orderCount} total, ${successfulOrders} successful, ${failedOrders} failed`)
       }
@@ -627,9 +628,9 @@ export default function DashboardOverviewPage() {
           📊 Volume data from multi-chain aggregation (Base, Lisk, Celo) • Updated every 15 minutes • Real-time price conversion
         </p>
         <div className="text-xs text-muted-foreground mt-2 flex gap-4">
-          <span>💱 Live Rates:</span>
-          <span>USD: ${exchangeRates.usd.toFixed(2)}</span>
-          <span>NGN: ₦{exchangeRates.ngn.toLocaleString()}</span>
+          <span>💱 Live Exchange Rates:</span>
+          <span>1 USD = ${exchangeRates.usd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+          <span>1 USD = ₦{exchangeRates.ngn.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
         </div>
       </div>
     </div>
