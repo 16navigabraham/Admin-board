@@ -4,21 +4,14 @@ import { CardDescription } from "@/components/ui/card"
 
 import { useState, useEffect } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { DollarSign, Package, XCircle, CheckCircle, RefreshCw, Loader2 } from 'lucide-react'
-import { CONTRACT_ABI, CONTRACT_ADDRESS } from "@/config/contract"
-import { createPublicClient, http, formatUnits } from "viem"
-import { base } from "viem/chains"
+import { DollarSign, Package, XCircle, CheckCircle, RefreshCw, Loader2, Network } from 'lucide-react'
 import { Button } from "@/components/ui/button"
 import { toast } from "sonner"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart"
 import { Bar, BarChart, Line, LineChart, XAxis, YAxis, CartesianGrid, Legend, ResponsiveContainer } from "recharts"
-
-// Create public client for contract interactions
-const publicClient = createPublicClient({
-  chain: base,
-  transport: http(),
-})
+import { useChain } from "@/contexts/chain-context"
+import { Badge } from "@/components/ui/badge"
 
 type Currency = "USDC" | "USD" | "NGN"
 
@@ -41,7 +34,15 @@ interface ProcessedDailyStats extends DailyStats {
   timestamp: string
 }
 
+interface ChainBreakdown {
+  chainId: number
+  volumeUSD: string
+  volumeNGN: string
+  tokenCount: number
+}
+
 export default function DashboardOverviewPage() {
+  const { selectedChain, chainConfig } = useChain()
   const [totalVolume, setTotalVolume] = useState<string>("N/A")
   const [totalSuccessfulOrders, setTotalSuccessfulOrders] = useState<string>("N/A")
   const [totalFailedOrders, setTotalFailedOrders] = useState<string>("N/A")
@@ -55,123 +56,78 @@ export default function DashboardOverviewPage() {
     usd: 1,
     ngn: 1500,
   })
+  const [chainBreakdown, setChainBreakdown] = useState<ChainBreakdown[]>([])
+  const [showAllChains, setShowAllChains] = useState(true)
 
   const fetchExchangeRates = async () => {
-    try {
-      // Fetch prices for USDT and USDC from your API
-      const response = await fetch('https://paycrypt-margin-price.onrender.com/api/v3/simple/price?ids=tether,usd-coin&vs_currencies=usd,ngn')
-      
-      if (!response.ok) {
-        throw new Error('Failed to fetch exchange rates')
-      }
-      
-      const data = await response.json()
-      
-      // Extract rates - using USDT as primary reference
-      const usdtRates = data.tether || data['tether'] || { usd: 1, ngn: 1500 }
-      
-      setExchangeRates({
-        usd: usdtRates.usd || 1,
-        ngn: usdtRates.ngn || 1500,
-      })
-      
-      console.log('Exchange rates updated:', usdtRates)
-      toast.success('Exchange rates updated successfully!')
-    } catch (error) {
-      console.error('Error fetching exchange rates:', error)
-      toast.error('Failed to fetch latest exchange rates, using fallback rates')
-    }
+    // Exchange rates are now provided by the Volume API
+    // This function is kept for backward compatibility
+    toast.info('Exchange rates are automatically updated with volume data')
   }
 
   const fetchDashboardStats = async () => {
     setIsLoadingStats(true)
     try {
-      // Fetch from tokens endpoint to get individual token data
-      const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_API_URL}/api/stats`)
-      if (!response.ok) {
+      // Fetch order stats from existing endpoint
+      const statsResponse = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_API_URL}/api/stats`)
+      if (!statsResponse.ok) {
         throw new Error("Failed to fetch dashboard stats from backend")
       }
-      const data = await response.json()
+      const statsData = await statsResponse.json()
+      
+      setTotalSuccessfulOrders(statsData.successfulOrders.toString())
+      setTotalFailedOrders(statsData.failedOrders.toString())
+      setOrderCounter(statsData.orderCount.toString())
 
-      // Also fetch individual token volumes to calculate proper total
-      try {
-        // Get supported tokens from contract to calculate accurate total volume
-        const tokenAddresses = (await publicClient.readContract({
-          address: CONTRACT_ADDRESS,
-          abi: CONTRACT_ABI,
-          functionName: "getSupportedTokens",
-        })) as any[]
-
-        if (tokenAddresses && tokenAddresses.length > 0) {
-          // Fetch details for each token
-          const tokenDetailsPromises = tokenAddresses.map(async (address) => {
-            try {
-              const details = (await publicClient.readContract({
-                address: CONTRACT_ADDRESS,
-                abi: CONTRACT_ABI,
-                functionName: "getTokenDetails",
-                args: [address],
-              })) as any
-
-              return {
-                address,
-                name: details.name,
-                decimals: Number(details.decimals),
-                totalVolume: details.totalVolume,
-                isStablecoin: details.name === 'USDC' || details.name === 'USDT' || details.name === 'DAI'
-              }
-            } catch (error) {
-              console.error(`Error fetching details for token ${address}:`, error)
-              return null
-            }
-          })
-
-          const resolvedTokens = (await Promise.all(tokenDetailsPromises)).filter(token => token !== null)
+      // Fetch volume data from Volume API (all chains or specific)
+      const volumeEndpoint = showAllChains 
+        ? `${process.env.NEXT_PUBLIC_BACKEND_API_URL}/api/volume/latest`
+        : `${process.env.NEXT_PUBLIC_BACKEND_API_URL}/api/volume/by-chain`
+      
+      const volumeResponse = await fetch(volumeEndpoint)
+      if (!volumeResponse.ok) {
+        throw new Error("Failed to fetch volume data from backend")
+      }
+      const volumeData = await volumeResponse.json()
+      
+      if (volumeData.success && volumeData.data) {
+        // If showing all chains, use total volume
+        if (showAllChains) {
+          const volumeUSD = parseFloat(volumeData.data.totalVolumeUSD.replace(/,/g, ''))
+          const volumeNGN = parseFloat(volumeData.data.totalVolumeNGN.replace(/,/g, ''))
           
-          // Calculate total volume by converting all stablecoins to USD equivalent
-          let totalVolumeInUSD = 0
-          let volumeBreakdown: string[] = []
-
-          resolvedTokens.forEach((token) => {
-            if (token) {
-              const tokenVolume = parseFloat(formatUnits(token.totalVolume, token.decimals))
-              
-              if (token.isStablecoin) {
-                // Stablecoins: treat as 1:1 USD
-                totalVolumeInUSD += tokenVolume
-                volumeBreakdown.push(`${tokenVolume.toFixed(2)} ${token.name}`)
-              } else {
-                // Non-stablecoins: you might want to fetch their USD price or exclude them
-                // For now, we'll show them separately in the breakdown but not add to total
-                if (tokenVolume > 0) {
-                  volumeBreakdown.push(`${tokenVolume.toFixed(2)} ${token.name} (non-USD)`)
-                }
-              }
-            }
-          })
-
-          setRawTotalVolumeBigInt(BigInt(Math.floor(totalVolumeInUSD * 1000000))) // Convert back to 6-decimal representation
-          console.log('Volume breakdown:', volumeBreakdown.join(', '))
+          setRawTotalVolumeBigInt(BigInt(Math.floor(volumeUSD * 1000000)))
           
-          if (volumeBreakdown.length > 0) {
-            toast.success(`Volume calculated from: ${volumeBreakdown.join(', ')}`)
+          // Update exchange rates from API data
+          if (volumeData.data.tokens && volumeData.data.tokens.length > 0) {
+            const firstToken = volumeData.data.tokens[0]
+            setExchangeRates({
+              usd: firstToken.priceUSD || 1,
+              ngn: firstToken.priceNGN || 1500
+            })
           }
+          
+          console.log(`📊 Volume (All Chains): $${volumeData.data.totalVolumeUSD} USD / ₦${volumeData.data.totalVolumeNGN} NGN`)
+          console.log(`🪙 Tracking ${volumeData.data.tokenCount} tokens across all chains`)
         } else {
-          // Fallback to backend data if no tokens found
-          const volumeBigInt = BigInt(data.totalVolume)
-          setRawTotalVolumeBigInt(volumeBigInt)
+          // Use chain-specific data
+          setChainBreakdown(volumeData.data.byChain || [])
+          
+          // Find the selected chain's data
+          const currentChainData = volumeData.data.byChain?.find(
+            (chain: ChainBreakdown) => chain.chainId === chainConfig?.chainId
+          )
+          
+          if (currentChainData) {
+            const volumeUSD = parseFloat(currentChainData.volumeUSD.replace(/,/g, ''))
+            setRawTotalVolumeBigInt(BigInt(Math.floor(volumeUSD * 1000000)))
+            
+            console.log(`📊 Volume (${chainConfig?.name}): $${currentChainData.volumeUSD} USD`)
+            console.log(`🪙 ${currentChainData.tokenCount} tokens on this chain`)
+          }
         }
-      } catch (contractError) {
-        console.error("Error fetching contract token data:", contractError)
-        // Fallback to backend data
-        const volumeBigInt = BigInt(data.totalVolume)
-        setRawTotalVolumeBigInt(volumeBigInt)
-        toast.warning("Using backend volume data (may include non-USD tokens)")
       }
       
-      setTotalSuccessfulOrders(data.successfulOrders.toString())
-      setTotalFailedOrders(data.failedOrders.toString())
-      setOrderCounter(data.orderCount.toString())
       toast.success("Dashboard stats updated!")
     } catch (error) {
       console.error("Error fetching dashboard stats:", error)
@@ -187,27 +143,55 @@ export default function DashboardOverviewPage() {
 
   const fetchDailyStats = async (timeframe: string) => {
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_API_URL}/api/stats/chart/${timeframe}`)
-      if (!response.ok) {
-        throw new Error("Failed to fetch daily stats from backend")
+      // Map frontend timeframe to API interval format
+      const intervalMap: Record<string, string> = {
+        "1h": "3h",
+        "24h": "24h",
+        "7d": "24h",
+        "30d": "24h"
       }
-      const data: { period: string; data: any[]; count: number } = await response.json()
+      const interval = intervalMap[timeframe] || "24h"
 
-      // Simple approach: Scale down the massive values to realistic stablecoin amounts
-      // The current chart shows ~$15.8 trillion, but realistic total should be ~$50-100
-      // So we need to scale down by a factor of roughly 1e11 to 1e12
-      const SCALE_DOWN_FACTOR = 1e11 // Adjust this based on actual data patterns
+      // Fetch volume chart data from new Volume API
+      const volumeResponse = await fetch(
+        `${process.env.NEXT_PUBLIC_BACKEND_API_URL}/api/volume/chart?interval=${interval}`
+      )
+      
+      if (!volumeResponse.ok) {
+        throw new Error("Failed to fetch volume chart data")
+      }
+      
+      const volumeData = await volumeResponse.json()
 
-      const processedData: ProcessedDailyStats[] = data.data.map((item: any) => {
-        // Convert from wei/large number to reasonable USD amounts
-        const rawVolume = Number.parseFloat(formatUnits(BigInt(item.totalVolume), 6))
-        const scaledVolume = rawVolume / SCALE_DOWN_FACTOR
+      // Fetch order stats chart data
+      const statsResponse = await fetch(
+        `${process.env.NEXT_PUBLIC_BACKEND_API_URL}/api/stats/chart/${timeframe}`
+      )
+      
+      if (!statsResponse.ok) {
+        throw new Error("Failed to fetch stats chart data")
+      }
+      
+      const statsData = await statsResponse.json()
+
+      // Merge volume and stats data by timestamp
+      const processedData: ProcessedDailyStats[] = volumeData.data.map((volumeItem: any) => {
+        // Parse the formatted USD string to number
+        const volumeUSD = parseFloat(volumeItem.totalVolumeUSD.replace(/,/g, ''))
+        
+        // Find matching stats data by timestamp
+        const statsItem = statsData.data.find((s: any) => 
+          Math.abs(new Date(s.timestamp).getTime() - new Date(volumeItem.timestamp).getTime()) < 60000
+        ) || { successfulOrders: 0, failedOrders: 0, orderCount: 0 }
 
         return {
-          ...item,
-          date: new Date(item.timestamp).toLocaleDateString("en-US", { month: "short", day: "numeric" }),
-          totalVolume: scaledVolume, // This should now be in the $50-100 range
-          timestamp: item.timestamp
+          date: new Date(volumeItem.timestamp).toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+          orderCount: statsItem.orderCount || 0,
+          totalVolume: volumeUSD,
+          successfulOrders: statsItem.successfulOrders || 0,
+          failedOrders: statsItem.failedOrders || 0,
+          successRate: statsItem.successRate || 0,
+          timestamp: volumeItem.timestamp
         }
       })
 
@@ -226,7 +210,8 @@ export default function DashboardOverviewPage() {
       })
 
       setDailyStats(uniqueData)
-      console.log('Chart data after scaling:', uniqueData.slice(0, 3)) // Log first 3 entries for debugging
+      console.log('📈 Chart loaded:', volumeData.statistics)
+      console.log('📊 Data points:', uniqueData.length)
     } catch (error) {
       console.error("Error fetching daily stats:", error)
       toast.error("Failed to load chart data.")
@@ -237,7 +222,7 @@ export default function DashboardOverviewPage() {
   useEffect(() => {
     fetchExchangeRates()
     fetchDashboardStats()
-  }, [])
+  }, [showAllChains, selectedChain]) // Refetch when chain selection or view mode changes
 
   useEffect(() => {
     fetchDailyStats(chartTimeframe)
@@ -245,22 +230,23 @@ export default function DashboardOverviewPage() {
 
   useEffect(() => {
     if (rawTotalVolumeBigInt !== null) {
-      const usdcAmount = parseFloat(formatUnits(rawTotalVolumeBigInt, 6))
+      // Convert from stored bigint (6 decimals) to USD amount
+      const usdAmount = Number(rawTotalVolumeBigInt) / 1000000
       
       let displayValue: string
 
       switch (currentCurrency) {
         case "USD":
-          const usdValue = usdcAmount * exchangeRates.usd
+          const usdValue = usdAmount * exchangeRates.usd
           displayValue = `$${usdValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
           break
         case "NGN":
-          const ngnValue = usdcAmount * exchangeRates.ngn
+          const ngnValue = usdAmount * exchangeRates.ngn
           displayValue = `₦${ngnValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
           break
         case "USDC":
         default:
-          displayValue = `$${usdcAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD`
+          displayValue = `$${usdAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
           break
       }
       
@@ -270,7 +256,7 @@ export default function DashboardOverviewPage() {
 
   const chartConfig = {
     totalVolume: {
-      label: "Stablecoin Volume",
+      label: "Total Volume (USD)",
       color: "#3B82F6",
     },
     successfulOrders: {
@@ -289,18 +275,48 @@ export default function DashboardOverviewPage() {
 
   return (
     <div className="flex-1 p-4 md:p-8 overflow-auto">
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-3xl font-bold">Dashboard Overview</h1>
-        <div className="flex gap-2">
-          <Button onClick={fetchDashboardStats} disabled={isLoadingStats} variant="outline" size="sm">
-            {isLoadingStats ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
-            Refresh
-          </Button>
-          <Button onClick={fetchExchangeRates} variant="outline" size="sm">
-            <RefreshCw className="mr-2 h-4 w-4" />
-            Update Rates
-          </Button>
+      <div className="flex flex-col gap-4 mb-6">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <h1 className="text-3xl font-bold">Dashboard Overview</h1>
+            {!showAllChains && chainConfig && (
+              <Badge variant="outline" className="flex items-center gap-1">
+                <Network className="h-3 w-3" />
+                {chainConfig.name}
+              </Badge>
+            )}
+          </div>
+          <div className="flex gap-2">
+            <Button 
+              onClick={() => setShowAllChains(!showAllChains)} 
+              variant={showAllChains ? "default" : "outline"} 
+              size="sm"
+            >
+              <Network className="mr-2 h-4 w-4" />
+              {showAllChains ? "All Chains" : "Single Chain"}
+            </Button>
+            <Button onClick={fetchDashboardStats} disabled={isLoadingStats} variant="outline" size="sm">
+              {isLoadingStats ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+              Refresh
+            </Button>
+          </div>
         </div>
+        
+        {showAllChains && chainBreakdown.length > 0 && (
+          <div className="flex gap-2 flex-wrap">
+            {chainBreakdown.map((chain) => {
+              const chainName = chain.chainId === 8453 ? 'Base' : chain.chainId === 1135 ? 'Lisk' : 'Celo'
+              const chainIcon = chain.chainId === 8453 ? '🔵' : chain.chainId === 1135 ? '🟣' : '🟡'
+              return (
+                <div key={chain.chainId} className="flex items-center gap-2 px-3 py-1.5 bg-muted rounded-md text-sm">
+                  <span>{chainIcon}</span>
+                  <span className="font-medium">{chainName}:</span>
+                  <span className="text-muted-foreground">${chain.volumeUSD}</span>
+                </div>
+              )
+            })}
+          </div>
+        )}
       </div>
       
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
@@ -319,13 +335,15 @@ export default function DashboardOverviewPage() {
                   <SelectValue placeholder="Currency" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="USDC">USD Equivalent (Stablecoins Only)</SelectItem>
-                  <SelectItem value="USD">USD</SelectItem>
-                  <SelectItem value="NGN">NGN</SelectItem>
+                  <SelectItem value="USDC">USD (Default)</SelectItem>
+                  <SelectItem value="USD">USD (Live Rate)</SelectItem>
+                  <SelectItem value="NGN">NGN (Live Rate)</SelectItem>
                 </SelectContent>
               </Select>
             </div>
-            <p className="text-xs text-muted-foreground mt-2">Stablecoin value processed (USDC/USDT/DAI)</p>
+            <p className="text-xs text-muted-foreground mt-2">
+              {showAllChains ? 'All tokens across Base, Lisk & Celo chains' : `${chainConfig?.name} chain only`}
+            </p>
           </CardContent>
         </Card>
         
@@ -382,8 +400,8 @@ export default function DashboardOverviewPage() {
         <div className="grid gap-6 lg:grid-cols-2">
           <Card>
             <CardHeader>
-              <CardTitle>Stablecoin Volume Over Time</CardTitle>
-              <CardDescription>Volume of stablecoin transactions (USDC/USDT/DAI) over the selected period.</CardDescription>
+              <CardTitle>Total Volume Over Time</CardTitle>
+              <CardDescription>Trading volume across all supported tokens on Base, Lisk, and Celo chains (converted to USD).</CardDescription>
             </CardHeader>
             <CardContent className="p-4">
               <ChartContainer config={chartConfig} className="aspect-video h-[300px]">
@@ -413,7 +431,7 @@ export default function DashboardOverviewPage() {
                     />
                     <ChartTooltip 
                       content={<ChartTooltipContent />}
-                      formatter={(value: any) => [`$${Number(value).toFixed(2)}`, 'Stablecoin Volume']}
+                      formatter={(value: any) => [`$${Number(value).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, 'Total Volume']}
                     />
                     <Line
                       dataKey="totalVolume"
@@ -512,11 +530,12 @@ export default function DashboardOverviewPage() {
         </div>
         
         <p className="text-sm text-muted-foreground mt-4">
-          Note: Historical data for charts is now fetched from your backend API. Exchange rates updated from live price feed.
+          📊 Volume data from multi-chain aggregation (Base, Lisk, Celo) • Updated every 15 minutes • Real-time price conversion
         </p>
         <div className="text-xs text-muted-foreground mt-2 flex gap-4">
-          <span>USDT/USD: ${exchangeRates.usd}</span>
-          <span>USDT/NGN: ₦{exchangeRates.ngn.toLocaleString()}</span>
+          <span>💱 Live Rates:</span>
+          <span>USD: ${exchangeRates.usd.toFixed(2)}</span>
+          <span>NGN: ₦{exchangeRates.ngn.toLocaleString()}</span>
         </div>
       </div>
     </div>

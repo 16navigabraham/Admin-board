@@ -1,24 +1,35 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useMemo } from "react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { toast } from "sonner"
-import { CONTRACT_ABI, CONTRACT_ADDRESS } from "@/config/contract"
+import { CONTRACT_ABI, getContractAddressByKey, getExplorerUrl, getChainConfig } from "@/config/contract"
 import { createPublicClient, http, decodeFunctionData, type Hex, decodeEventLog, stringToBytes, pad, toHex, formatUnits } from "viem"
-import { base } from "viem/chains"
+import { base, celo } from "viem/chains"
 import { useWriteContract, useWaitForTransactionReceipt } from "wagmi"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { Loader2, Copy, Search } from 'lucide-react'
+import { Loader2, Copy, Search, Network } from 'lucide-react'
 import { getUserHistory } from "@/lib/api"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
+import { useChain } from "@/contexts/chain-context"
+import { Badge } from "@/components/ui/badge"
 
-const publicClient = createPublicClient({
-  chain: base,
-  transport: http(),
-})
+// Define Lisk chain config (not in viem by default)
+const liskChain = {
+  id: 1135,
+  name: 'Lisk',
+  nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
+  rpcUrls: {
+    default: { http: ['https://rpc.api.lisk.com'] },
+    public: { http: ['https://rpc.api.lisk.com'] },
+  },
+  blockExplorers: {
+    default: { name: 'Lisk Explorer', url: 'https://blockscout.lisk.com' },
+  },
+} as const
 
 interface DecodedTxnData {
   functionName: string
@@ -56,6 +67,7 @@ interface MainPlatformOrder {
 }
 
 export default function ManageOrdersPage() {
+  const { selectedChain, chainConfig } = useChain()
   const [txnHash, setTxnHash] = useState<string>("")
   const [decodedData, setDecodedData] = useState<DecodedTxnData | null>(null)
   const [orderIdToProcess, setOrderIdToProcess] = useState<string>("")
@@ -79,6 +91,30 @@ export default function ManageOrdersPage() {
   const { isLoading: isConfirming, isSuccess: isConfirmed } = useWaitForTransactionReceipt({
     hash,
   })
+
+  // Create dynamic public client based on selected chain
+  const publicClient = useMemo(() => {
+    const viemChain = selectedChain === 'base' ? base : 
+                      selectedChain === 'lisk' ? liskChain : 
+                      celo
+    
+    return createPublicClient({
+      chain: viemChain,
+      transport: http(chainConfig?.rpcUrl),
+    })
+  }, [selectedChain, chainConfig])
+
+  // Get current chain's contract address
+  const contractAddress = useMemo(() => 
+    getContractAddressByKey(selectedChain),
+    [selectedChain]
+  )
+
+  // Get current chain's explorer URL
+  const explorerUrl = useMemo(() => 
+    chainConfig?.explorer || 'https://basescan.org',
+    [chainConfig]
+  )
 
   const handleDecodeTxn = async () => {
     if (!txnHash) {
@@ -106,7 +142,7 @@ export default function ManageOrdersPage() {
           abi: CONTRACT_ABI,
           data: transaction.input,
         })
-        decodedInput = { functionName, args }
+        decodedInput = { functionName, args: [...args] as any[] }
         setDecodedData(decodedInput)
       } catch (e) {
         console.warn("Could not decode transaction input data:", e)
@@ -130,9 +166,11 @@ export default function ManageOrdersPage() {
 
             if (decodedEvent.eventName === "OrderCreated") {
               foundActualOrderId = (decodedEvent.args as any).orderId.toString()
-              setOrderIdToProcess(foundActualOrderId)
-              toast.success(`Transaction decoded and actual Order ID ${foundActualOrderId} found from event!`)
-              return // Found the actual order ID, no need to check other logs
+              if (foundActualOrderId) {
+                setOrderIdToProcess(foundActualOrderId)
+                toast.success(`Transaction decoded and actual Order ID ${foundActualOrderId} found from event!`)
+                return // Found the actual order ID, no need to check other logs
+              }
             }
           } catch (e) {
             // Ignore logs that don't match our ABI or are not OrderCreated
@@ -172,12 +210,13 @@ export default function ManageOrdersPage() {
     }
     try {
       writeContract({
-        address: CONTRACT_ADDRESS,
+        address: contractAddress,
         abi: CONTRACT_ABI,
         functionName: "markOrderSuccessful",
         args: [BigInt(orderIdToProcess)],
+        chainId: chainConfig?.chainId,
       })
-      toast.info("Marking order successful...")
+      toast.info(`Marking order successful on ${chainConfig?.name}...`)
     } catch (error: any) {
       console.error("Error marking order successful:", error)
       toast.error(`Failed to mark order successful: ${error.message || error}`)
@@ -191,12 +230,13 @@ export default function ManageOrdersPage() {
     }
     try {
       writeContract({
-        address: CONTRACT_ADDRESS,
+        address: contractAddress,
         abi: CONTRACT_ABI,
         functionName: "markOrderFailed",
         args: [BigInt(orderIdToProcess)],
+        chainId: chainConfig?.chainId,
       })
-      toast.info("Marking order failed...")
+      toast.info(`Marking order failed on ${chainConfig?.name}...`)
     } catch (error: any) {
       console.error("Error marking order failed:", error)
       toast.error(`Failed to mark order failed: ${error.message || error}`)
@@ -331,7 +371,13 @@ export default function ManageOrdersPage() {
 
   return (
     <div className="flex-1 p-4 md:p-8 overflow-auto">
-      <h1 className="text-3xl font-bold mb-6">Order Tools</h1>
+      <div className="flex items-center justify-between mb-6">
+        <h1 className="text-3xl font-bold">Order Tools</h1>
+        <Badge variant="outline" className="flex items-center gap-2">
+          <Network className="h-3 w-3" />
+          {chainConfig?.name} Chain
+        </Badge>
+      </div>
 
       <Card className="mb-6">
         <CardHeader>
@@ -445,7 +491,7 @@ export default function ManageOrdersPage() {
                     <p>
                       <strong>Hash:</strong>{" "}
                       <a
-                        href={`https://basescan.org/tx/${foundTxnByRequestId.txnHash}`}
+                        href={`${explorerUrl}/tx/${foundTxnByRequestId.txnHash}`}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="underline"
@@ -456,7 +502,7 @@ export default function ManageOrdersPage() {
                     <p>
                       <strong>User Wallet:</strong>{" "}
                       <a
-                        href={`https://basescan.org/address/${foundTxnByRequestId.userWallet}`}
+                        href={`${explorerUrl}/address/${foundTxnByRequestId.userWallet}`}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="underline"
@@ -531,7 +577,7 @@ export default function ManageOrdersPage() {
               <div className="mt-2 text-sm text-muted-foreground">
                 Transaction Hash:{" "}
                 <a
-                  href={`https://basescan.org/tx/${hash}`}
+                  href={`${explorerUrl}/tx/${hash}`}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="underline"
@@ -607,7 +653,7 @@ export default function ManageOrdersPage() {
                           <TableCell className="font-medium">
                             <div className="flex items-center gap-2">
                               <a
-                                href={`https://basescan.org/tx/${tx.txnHash}`}
+                                href={`${explorerUrl}/tx/${tx.txnHash}`}
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 className="underline"
@@ -633,7 +679,7 @@ export default function ManageOrdersPage() {
                           <TableCell>
                             <div className="flex items-center gap-2">
                               <a
-                                href={`https://basescan.org/address/${tx.userWallet}`}
+                                href={`${explorerUrl}/address/${tx.userWallet}`}
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 className="underline"
@@ -659,7 +705,7 @@ export default function ManageOrdersPage() {
                           <TableCell>
                             <div className="flex items-center gap-2">
                               <a
-                                href={`https://basescan.org/token/${tx.tokenAddress}`}
+                                href={`${explorerUrl}/token/${tx.tokenAddress}`}
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 className="underline"
@@ -794,7 +840,7 @@ export default function ManageOrdersPage() {
                           <TableCell className="font-medium">
                             <div className="flex items-center gap-2">
                               <a
-                                href={`https://basescan.org/tx/${order.transactionHash}`}
+                                href={`${explorerUrl}/tx/${order.transactionHash}`}
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 className="underline"

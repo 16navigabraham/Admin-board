@@ -1,4 +1,83 @@
-export const CONTRACT_ADDRESS = "0x0574A0941Ca659D01CF7370E37492bd2DF43128d"
+// Multi-chain contract configuration
+import { Abi } from 'viem';
+
+// Chain type definition
+export type ChainKey = 'base' | 'lisk' | 'celo';
+export type ChainConfig = {
+  chainId: number;
+  name: string;
+  address: `0x${string}`;
+  explorer: string;
+  rpcUrl?: string;
+};
+
+// Multi-chain contract configuration
+export const CONTRACTS: Record<ChainKey, ChainConfig> = {
+  base: {
+    chainId: 8453,
+    name: 'Base',
+    address: '0x0574A0941Ca659D01CF7370E37492bd2DF43128d',
+    explorer: 'https://basescan.org',
+    rpcUrl: 'https://mainnet.base.org',
+  },
+  lisk: {
+    chainId: 1135,
+    name: 'Lisk',
+    address: '0x7Ca0a469164655AF07d27cf4bdA5e77F36Ab820A',
+    explorer: 'https://blockscout.lisk.com',
+    rpcUrl: 'https://rpc.api.lisk.com',
+  },
+  celo: {
+    chainId: 42220,
+    name: 'Celo',
+    address: '0xBC955DC38a13c2Cd8736DA1bC791514504202F9D',
+    explorer: 'https://celoscan.io',
+    rpcUrl: 'https://forno.celo.org',
+  },
+} as const;
+
+// Default to Base for backward compatibility
+export const CONTRACT_ADDRESS = CONTRACTS.base.address;
+export const DEFAULT_CHAIN: ChainKey = 'base';
+
+// Helper function to get contract address by chain ID
+export function getContractAddress(chainId: number): `0x${string}` {
+  const chain = Object.values(CONTRACTS).find(c => c.chainId === chainId);
+  return chain?.address || CONTRACTS.base.address;
+}
+
+// Helper function to get contract address by chain key
+export function getContractAddressByKey(chainKey: ChainKey): `0x${string}` {
+  return CONTRACTS[chainKey].address;
+}
+
+// Helper function to get explorer URL by chain ID
+export function getExplorerUrl(chainId: number): string {
+  const chain = Object.values(CONTRACTS).find(c => c.chainId === chainId);
+  return chain?.explorer || CONTRACTS.base.explorer;
+}
+
+// Helper function to get chain config by chain ID
+export function getChainConfig(chainId: number): ChainConfig | undefined {
+  return Object.values(CONTRACTS).find(c => c.chainId === chainId);
+}
+
+// Helper function to get chain key by chain ID
+export function getChainKey(chainId: number): ChainKey | undefined {
+  const entry = Object.entries(CONTRACTS).find(([_, config]) => config.chainId === chainId);
+  return entry?.[0] as ChainKey | undefined;
+}
+
+// Helper function to get all supported chain IDs
+export function getSupportedChainIds(): number[] {
+  return Object.values(CONTRACTS).map(c => c.chainId);
+}
+
+// Helper function to check if chain is supported
+export function isChainSupported(chainId: number): boolean {
+  return getSupportedChainIds().includes(chainId);
+}
+
 export const CONTRACT_ABI = [
   {
     inputs: [

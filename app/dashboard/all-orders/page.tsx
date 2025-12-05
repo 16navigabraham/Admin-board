@@ -1,14 +1,17 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo } from "react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { Loader2, Copy } from 'lucide-react'
+import { Loader2, Copy, Network, ChevronLeft, ChevronRight } from 'lucide-react'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { toast } from "sonner"
-import { formatUnits } from "viem" // Only need formatUnits for amount
-import { Button } from "@/components/ui/button" // Import Button component
+import { formatUnits } from "viem"
+import { Button } from "@/components/ui/button"
+import { useChain } from "@/contexts/chain-context"
+import { Badge } from "@/components/ui/badge"
+import { getChainConfig } from "@/config/contract"
 
 // Interface matching the backend's Order structure
 interface Order {
@@ -20,27 +23,71 @@ interface Order {
   txnHash: string
   blockNumber: number
   timestamp: string // ISO string
+  chainId: number // Chain ID (8453=Base, 1135=Lisk, 42220=Celo)
+}
+
+interface PaginationInfo {
+  page: number
+  limit: number
+  total: number
+  pages: number
 }
 
 export default function AllOrdersPage() {
+  const { selectedChain, chainConfig } = useChain()
   const [allCreateOrders, setAllCreateOrders] = useState<Order[]>([])
   const [isFetchingOrders, setIsFetchingOrders] = useState(false)
-  const [timeframe, setTimeframe] = useState<string>("all") // 'all', '24h', '7d'
+  const [timeframe, setTimeframe] = useState<string>("24h") // '24h', '7d', '30d', etc.
+  const [pagination, setPagination] = useState<PaginationInfo>({
+    page: 1,
+    limit: 50,
+    total: 0,
+    pages: 0
+  })
+  const [showAllChains, setShowAllChains] = useState(false)
+
+  // Get explorer URL for a specific chain
+  const getExplorerUrlForChain = (chainId: number): string => {
+    const config = getChainConfig(chainId)
+    return config?.explorer || 'https://basescan.org'
+  }
+
+  const getChainName = (chainId: number): string => {
+    const config = getChainConfig(chainId)
+    return config?.name || `Chain ${chainId}`
+  }
+
+  const getChainIcon = (chainId: number): string => {
+    if (chainId === 8453) return '🔵' // Base
+    if (chainId === 1135) return '🟣' // Lisk
+    if (chainId === 42220) return '🟡' // Celo
+    return '⚪' // Unknown
+  }
 
   const fetchAllCreateOrders = async () => {
     setIsFetchingOrders(true)
-    setAllCreateOrders([])
     try {
-      let apiUrl = `${process.env.NEXT_PUBLIC_BACKEND_API_URL}/api/orders`
-      if (timeframe !== "all") {
-        apiUrl += `?range=${timeframe}`
+      // Build query params
+      const params = new URLSearchParams({
+        page: pagination.page.toString(),
+        limit: pagination.limit.toString(),
+        range: timeframe,
+        sort: 'timestamp',
+        order: 'desc'
+      })
+
+      // Add chain filter if not showing all chains
+      if (!showAllChains && chainConfig) {
+        params.append('chainId', chainConfig.chainId.toString())
       }
+
+      const apiUrl = `${process.env.NEXT_PUBLIC_BACKEND_API_URL}/api/orders?${params}`
 
       const response = await fetch(apiUrl)
       if (!response.ok) {
-        throw new Error("Failed to fetch all create orders from backend")
+        throw new Error("Failed to fetch orders from backend")
       }
-      const data: { orders: Order[] } = await response.json()
+      const data: { orders: Order[], pagination: PaginationInfo } = await response.json()
 
       // Process data to format amount and timestamp for display
       const processedData = data.orders.map((order) => ({
@@ -50,18 +97,28 @@ export default function AllOrdersPage() {
       }))
 
       setAllCreateOrders(processedData)
-      toast.success("All create orders fetched successfully!")
+      setPagination(data.pagination)
+      
+      const chainInfo = showAllChains ? 'all chains' : chainConfig?.name || 'selected chain'
+      toast.success(`Fetched ${processedData.length} orders from ${chainInfo}!`)
     } catch (error: any) {
-      console.error("Error fetching all create orders:", error)
-      toast.error(`Failed to fetch all create orders: ${error.message || error}`)
+      console.error("Error fetching orders:", error)
+      toast.error(`Failed to fetch orders: ${error.message || error}`)
+      setAllCreateOrders([])
     } finally {
       setIsFetchingOrders(false)
     }
   }
 
+  // Refetch when filters change (reset to page 1)
+  useEffect(() => {
+    setPagination(prev => ({ ...prev, page: 1 }))
+  }, [timeframe, showAllChains, selectedChain])
+
+  // Fetch orders when pagination or filters change
   useEffect(() => {
     fetchAllCreateOrders()
-  }, [timeframe]) // Refetch when timeframe changes
+  }, [pagination.page, timeframe, showAllChains, selectedChain])
 
   const handleCopy = (text: string, label: string) => {
     navigator.clipboard.writeText(text)
@@ -70,16 +127,38 @@ export default function AllOrdersPage() {
 
   return (
     <div className="flex-1 p-4 md:p-8 overflow-auto">
-      <h1 className="text-3xl font-bold mb-6">All Create Order Transactions</h1>
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6">
+        <div className="flex items-center gap-3">
+          <h1 className="text-3xl font-bold">All Orders</h1>
+          {!showAllChains && chainConfig && (
+            <Badge variant="outline" className="flex items-center gap-1">
+              <span>{getChainIcon(chainConfig.chainId)}</span>
+              {chainConfig.name}
+            </Badge>
+          )}
+        </div>
+        <Button
+          onClick={() => setShowAllChains(!showAllChains)}
+          variant={showAllChains ? "default" : "outline"}
+          size="sm"
+          className="flex items-center gap-2"
+        >
+          <Network className="h-4 w-4" />
+          {showAllChains ? "All Chains" : "Single Chain"}
+        </Button>
+      </div>
 
       <Card>
         <CardHeader>
-          <CardTitle>Global Create Order History</CardTitle>
+          <CardTitle>Order History</CardTitle>
           <CardDescription>
-            Displays all `createOrder` transactions on the contract.
+            {showAllChains 
+              ? 'Displays orders across all chains (Base, Lisk, Celo)' 
+              : `Displays orders on ${chainConfig?.name} chain only`
+            }
             <br />
             <span className="text-sm text-muted-foreground">
-              This data is now fetched from your backend API.
+              Showing {pagination.total.toLocaleString()} total orders • Page {pagination.page} of {pagination.pages}
             </span>
           </CardDescription>
         </CardHeader>
@@ -90,9 +169,11 @@ export default function AllOrdersPage() {
                 <SelectValue placeholder="Select Timeframe" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All Time</SelectItem>
+                <SelectItem value="12h">Last 12 Hours</SelectItem>
                 <SelectItem value="24h">Last 24 Hours</SelectItem>
                 <SelectItem value="7d">Last 7 Days</SelectItem>
+                <SelectItem value="30d">Last 30 Days</SelectItem>
+                <SelectItem value="month">Last Month</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -106,6 +187,7 @@ export default function AllOrdersPage() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Order ID</TableHead>
+                    {showAllChains && <TableHead>Chain</TableHead>}
                     <TableHead>Request ID</TableHead>
                     <TableHead>Txn Hash</TableHead>
                     <TableHead>User Wallet</TableHead>
@@ -120,6 +202,14 @@ export default function AllOrdersPage() {
                     {allCreateOrders.map((tx) => (
                       <TableRow key={tx.txnHash}>
                         <TableCell className="font-semibold">{tx.orderId}</TableCell>
+                        {showAllChains && (
+                          <TableCell>
+                            <Badge variant="outline" className="flex items-center gap-1 w-fit">
+                              <span>{getChainIcon(tx.chainId)}</span>
+                              <span className="text-xs">{getChainName(tx.chainId)}</span>
+                            </Badge>
+                          </TableCell>
+                        )}
                         <TableCell className="font-mono text-xs">
                           <div className="flex items-center gap-2">
                             {tx.requestId.slice(0, 10)}...
@@ -142,7 +232,7 @@ export default function AllOrdersPage() {
                         <TableCell className="font-medium">
                           <div className="flex items-center gap-2">
                             <a
-                              href={`https://basescan.org/tx/${tx.txnHash}`}
+                              href={`${getExplorerUrlForChain(tx.chainId)}/tx/${tx.txnHash}`}
                               target="_blank"
                               rel="noopener noreferrer"
                               className="underline"
@@ -168,7 +258,7 @@ export default function AllOrdersPage() {
                         <TableCell>
                           <div className="flex items-center gap-2">
                             <a
-                              href={`https://basescan.org/address/${tx.userWallet}`}
+                              href={`${getExplorerUrlForChain(tx.chainId)}/address/${tx.userWallet}`}
                               target="_blank"
                               rel="noopener noreferrer"
                               className="underline"
@@ -194,7 +284,7 @@ export default function AllOrdersPage() {
                         <TableCell>
                           <div className="flex items-center gap-2">
                             <a
-                              href={`https://basescan.org/token/${tx.tokenAddress}`}
+                              href={`${getExplorerUrlForChain(tx.chainId)}/token/${tx.tokenAddress}`}
                               target="_blank"
                               rel="noopener noreferrer"
                               className="underline"
@@ -229,7 +319,41 @@ export default function AllOrdersPage() {
               </Table>
             </div>
           ) : (
-            <p className="text-center text-muted-foreground">No create order transactions found for this timeframe.</p>
+            <p className="text-center text-muted-foreground py-8">
+              No orders found for the selected filters.
+            </p>
+          )}
+          
+          {/* Pagination Controls */}
+          {pagination.pages > 1 && (
+            <div className="flex items-center justify-between mt-6 pt-4 border-t">
+              <div className="text-sm text-muted-foreground">
+                Showing {((pagination.page - 1) * pagination.limit) + 1} to {Math.min(pagination.page * pagination.limit, pagination.total)} of {pagination.total} orders
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setPagination(prev => ({ ...prev, page: prev.page - 1 }))}
+                  disabled={pagination.page === 1 || isFetchingOrders}
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                  Previous
+                </Button>
+                <div className="text-sm font-medium px-4">
+                  Page {pagination.page} of {pagination.pages}
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setPagination(prev => ({ ...prev, page: prev.page + 1 }))}
+                  disabled={pagination.page >= pagination.pages || isFetchingOrders}
+                >
+                  Next
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
           )}
         </CardContent>
       </Card>
