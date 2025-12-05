@@ -79,10 +79,14 @@ export default function DashboardOverviewPage() {
       setTotalFailedOrders(statsData.failedOrders.toString())
       setOrderCounter(statsData.orderCount.toString())
 
-      // Fetch volume data from Volume API (all chains or specific)
-      const volumeEndpoint = showAllChains 
-        ? `${process.env.NEXT_PUBLIC_BACKEND_API_URL}/api/volume/latest`
-        : `${process.env.NEXT_PUBLIC_BACKEND_API_URL}/api/volume/by-chain`
+      // Fetch volume data from Volume API
+      // Build query params for chain filtering
+      const volumeParams = new URLSearchParams()
+      if (!showAllChains && chainConfig) {
+        volumeParams.append('chainId', chainConfig.chainId.toString())
+      }
+      
+      const volumeEndpoint = `${process.env.NEXT_PUBLIC_BACKEND_API_URL}/api/volume/latest${volumeParams.toString() ? '?' + volumeParams.toString() : ''}`
       
       const volumeResponse = await fetch(volumeEndpoint)
       if (!volumeResponse.ok) {
@@ -91,41 +95,28 @@ export default function DashboardOverviewPage() {
       const volumeData = await volumeResponse.json()
       
       if (volumeData.success && volumeData.data) {
-        // If showing all chains, use total volume
-        if (showAllChains) {
-          const volumeUSD = parseFloat(volumeData.data.totalVolumeUSD.replace(/,/g, ''))
-          const volumeNGN = parseFloat(volumeData.data.totalVolumeNGN.replace(/,/g, ''))
-          
-          setRawTotalVolumeBigInt(BigInt(Math.floor(volumeUSD * 1000000)))
-          
-          // Update exchange rates from API data
-          if (volumeData.data.tokens && volumeData.data.tokens.length > 0) {
-            const firstToken = volumeData.data.tokens[0]
-            setExchangeRates({
-              usd: firstToken.priceUSD || 1,
-              ngn: firstToken.priceNGN || 1500
-            })
-          }
-          
-          console.log(`📊 Volume (All Chains): $${volumeData.data.totalVolumeUSD} USD / ₦${volumeData.data.totalVolumeNGN} NGN`)
-          console.log(`🪙 Tracking ${volumeData.data.tokenCount} tokens across all chains`)
-        } else {
-          // Use chain-specific data
-          setChainBreakdown(volumeData.data.byChain || [])
-          
-          // Find the selected chain's data
-          const currentChainData = volumeData.data.byChain?.find(
-            (chain: ChainBreakdown) => chain.chainId === chainConfig?.chainId
-          )
-          
-          if (currentChainData) {
-            const volumeUSD = parseFloat(currentChainData.volumeUSD.replace(/,/g, ''))
-            setRawTotalVolumeBigInt(BigInt(Math.floor(volumeUSD * 1000000)))
-            
-            console.log(`📊 Volume (${chainConfig?.name}): $${currentChainData.volumeUSD} USD`)
-            console.log(`🪙 ${currentChainData.tokenCount} tokens on this chain`)
-          }
+        const volumeUSD = parseFloat(volumeData.data.totalVolumeUSD.replace(/,/g, ''))
+        const volumeNGN = parseFloat(volumeData.data.totalVolumeNGN.replace(/,/g, ''))
+        
+        setRawTotalVolumeBigInt(BigInt(Math.floor(volumeUSD * 1000000)))
+        
+        // Update exchange rates from API data
+        if (volumeData.data.tokens && volumeData.data.tokens.length > 0) {
+          const firstToken = volumeData.data.tokens[0]
+          setExchangeRates({
+            usd: firstToken.priceUSD || 1,
+            ngn: firstToken.priceNGN || 1500
+          })
         }
+        
+        // Update chain breakdown if available
+        if (volumeData.data.byChain) {
+          setChainBreakdown(volumeData.data.byChain)
+        }
+        
+        const chainInfo = showAllChains ? 'all chains' : chainConfig?.name || 'selected chain'
+        console.log(`📊 Volume (${chainInfo}): $${volumeData.data.totalVolumeUSD} USD / ₦${volumeData.data.totalVolumeNGN} NGN`)
+        console.log(`🪙 Tracking ${volumeData.data.tokenCount} tokens`)
       }
       
       toast.success("Dashboard stats updated!")
