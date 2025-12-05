@@ -56,6 +56,27 @@ export default function DashboardOverviewPage() {
     usd: 1,
     ngn: 1500,
   })
+
+  useEffect(() => {
+    const fetchExchangeRatesFromAPI = async () => {
+      try {
+        const response = await fetch('https://paycrypt-margin-price.onrender.com/api/v3/simple/price?ids=tether&vs_currencies=ngn,usd')
+        if (response.ok) {
+          const data = await response.json()
+          if (data.tether) {
+            setExchangeRates({
+              usd: data.tether.usd || 1,
+              ngn: data.tether.ngn || 1500,
+            })
+          }
+        }
+      } catch (error) {
+        console.warn('Failed to fetch exchange rates from API:', error)
+      }
+    }
+
+    fetchExchangeRatesFromAPI()
+  }, [])
   const [chainBreakdown, setChainBreakdown] = useState<ChainBreakdown[]>([])
   const [showAllChains, setShowAllChains] = useState(true)
 
