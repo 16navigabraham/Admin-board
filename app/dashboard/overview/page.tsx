@@ -93,9 +93,13 @@ export default function DashboardOverviewPage() {
       let failedOrders = 0
       let orderCount = 0
 
-      // First, try to fetch stats from /api/stats endpoint
+      // Fetch stats from /api/stats endpoint - now returns aggregated data with chainStats
       try {
-        const statsResponse = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_API_URL}/api/stats`)
+        const statsUrl = !showAllChains && chainConfig 
+          ? `${process.env.NEXT_PUBLIC_BACKEND_API_URL}/api/stats/${chainConfig.chainId}`
+          : `${process.env.NEXT_PUBLIC_BACKEND_API_URL}/api/stats`
+        
+        const statsResponse = await fetch(statsUrl)
         if (statsResponse.ok) {
           const statsData = await statsResponse.json()
           console.log('📋 Raw stats data:', statsData)
@@ -111,7 +115,7 @@ export default function DashboardOverviewPage() {
             ? (typeof statsData.orderCount === 'string' ? parseInt(statsData.orderCount, 10) : statsData.orderCount)
             : 0
 
-          console.log('✅ Stats parsed from /api/stats:', { orderCount, successfulOrders, failedOrders })
+          console.log('✅ Stats parsed successfully:', { orderCount, successfulOrders, failedOrders })
         } else {
           console.log('⚠️ Stats endpoint returned non-200 status:', statsResponse.status)
         }
@@ -134,15 +138,10 @@ export default function DashboardOverviewPage() {
 
       const volumeData = await volumeResponse.json()
 
-      // Set stats - use parsed values or 0 as fallback
-      if (!isNaN(successfulOrders) && successfulOrders > 0) setTotalSuccessfulOrders(successfulOrders.toLocaleString())
-      else setTotalSuccessfulOrders("--")
-      
-      if (!isNaN(failedOrders) && failedOrders > 0) setTotalFailedOrders(failedOrders.toLocaleString())
-      else setTotalFailedOrders("--")
-      
-      if (!isNaN(orderCount) && orderCount > 0) setOrderCounter(orderCount.toLocaleString())
-      else setOrderCounter("--")
+      // Set stats - use parsed values or placeholder if unavailable
+      setTotalSuccessfulOrders(successfulOrders > 0 ? successfulOrders.toLocaleString() : "0")
+      setTotalFailedOrders(failedOrders > 0 ? failedOrders.toLocaleString() : "0")
+      setOrderCounter(orderCount > 0 ? orderCount.toLocaleString() : "0")
 
       // Parse volume data: handles formatted strings with commas
       if (volumeData.success && volumeData.data) {
