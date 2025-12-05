@@ -68,38 +68,68 @@ export default function DashboardOverviewPage() {
   const fetchDashboardStats = async () => {
     setIsLoadingStats(true)
     try {
-      // Fetch both endpoints in parallel for better performance
-      const [statsResponse, volumeResponse] = await Promise.all([
-        fetch(`${process.env.NEXT_PUBLIC_BACKEND_API_URL}/api/stats`),
-        fetch(
-          `${process.env.NEXT_PUBLIC_BACKEND_API_URL}/api/volume/latest${
-            !showAllChains && chainConfig 
-              ? `?chainId=${chainConfig.chainId}` 
-              : ''
-          }`
-        )
-      ])
+      // Try to fetch stats from the /api/stats endpoint
+      // If it fails or returns empty, we'll use fallback values
+      let successfulOrders = 0
+      let failedOrders = 0
+      let orderCount = 0
 
-      if (!statsResponse.ok || !volumeResponse.ok) {
-        throw new Error("Failed to fetch dashboard data")
+      try {
+        const statsResponse = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_API_URL}/api/stats`)
+        if (statsResponse.ok) {
+          const statsData = await statsResponse.json()
+          console.log('📋 Raw stats data:', statsData)
+
+          // Parse stats: API returns strings that need to be converted to numbers
+          successfulOrders = statsData.successfulOrders 
+            ? (typeof statsData.successfulOrders === 'string' ? parseInt(statsData.successfulOrders, 10) : statsData.successfulOrders)
+            : 0
+          failedOrders = statsData.failedOrders 
+            ? (typeof statsData.failedOrders === 'string' ? parseInt(statsData.failedOrders, 10) : statsData.failedOrders)
+            : 0
+          orderCount = statsData.orderCount 
+            ? (typeof statsData.orderCount === 'string' ? parseInt(statsData.orderCount, 10) : statsData.orderCount)
+            : 0
+
+          console.log('✅ Stats parsed:', { orderCount, successfulOrders, failedOrders })
+        }
+      } catch (statsError) {
+        console.log('⚠️ Stats endpoint not available, will use volume data', statsError)
       }
 
-      const statsData = await statsResponse.json()
+      // Always fetch volume data - it's the primary data source
+      const volumeResponse = await fetch(
+        `${process.env.NEXT_PUBLIC_BACKEND_API_URL}/api/volume/latest${
+          !showAllChains && chainConfig 
+            ? `?chainId=${chainConfig.chainId}` 
+            : ''
+        }`
+      )
+
+      if (!volumeResponse.ok) {
+        throw new Error("Failed to fetch volume data")
+      }
+
       const volumeData = await volumeResponse.json()
 
-      // Parse stats: API returns strings that need to be converted to numbers
-      const successfulOrders = parseInt(statsData.successfulOrders, 10)
-      const failedOrders = parseInt(statsData.failedOrders, 10)
-      const orderCount = parseInt(statsData.orderCount, 10)
-
-      setTotalSuccessfulOrders(successfulOrders.toLocaleString())
-      setTotalFailedOrders(failedOrders.toLocaleString())
-      setOrderCounter(orderCount.toLocaleString())
+      // Set stats - use parsed values or 0 as fallback
+      if (!isNaN(successfulOrders)) setTotalSuccessfulOrders(successfulOrders.toLocaleString())
+      else setTotalSuccessfulOrders("0")
+      
+      if (!isNaN(failedOrders)) setTotalFailedOrders(failedOrders.toLocaleString())
+      else setTotalFailedOrders("0")
+      
+      if (!isNaN(orderCount)) setOrderCounter(orderCount.toLocaleString())
+      else setOrderCounter("0")
 
       // Parse volume data: handles formatted strings with commas
       if (volumeData.success && volumeData.data) {
+        console.log('📦 Volume data received:', volumeData.data)
+        
         const volumeUSD = parseFloat(volumeData.data.totalVolumeUSD.replace(/,/g, ''))
         const volumeNGN = parseFloat(volumeData.data.totalVolumeNGN.replace(/,/g, ''))
+        
+        console.log('💰 Parsed volumes:', { volumeUSD, volumeNGN })
         
         // Store as bigint for currency conversion (6 decimals)
         setRawTotalVolumeBigInt(BigInt(Math.floor(volumeUSD * 1000000)))
@@ -137,9 +167,9 @@ export default function DashboardOverviewPage() {
       console.error("Error fetching dashboard stats:", error)
       toast.error("Failed to fetch dashboard stats.")
       setTotalVolume("N/A")
-      setTotalSuccessfulOrders("N/A")
-      setTotalFailedOrders("N/A")
-      setOrderCounter("N/A")
+      setTotalSuccessfulOrders("0")
+      setTotalFailedOrders("0")
+      setOrderCounter("0")
     } finally {
       setIsLoadingStats(false)
     }
