@@ -46,6 +46,7 @@ interface OrderHistoryItem {
   txnHash: string
   blockNumber: number
   timestamp: string // ISO string from backend
+  chainId: number // Chain ID (8453=Base, 1135=Lisk, 42220=Celo)
 }
 
 // Interface for main platform database orders
