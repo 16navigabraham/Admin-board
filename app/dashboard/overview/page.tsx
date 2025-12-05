@@ -52,39 +52,38 @@ export default function DashboardOverviewPage() {
   const [rawTotalVolumeBigInt, setRawTotalVolumeBigInt] = useState<bigint | null>(null)
   const [dailyStats, setDailyStats] = useState<ProcessedDailyStats[]>([])
   const [chartTimeframe, setChartTimeframe] = useState<string>("7d")
-  const [exchangeRates, setExchangeRates] = useState<ExchangeRates>({
-    usd: 1,
-    ngn: 1500,
-  })
-
-  useEffect(() => {
-    const fetchExchangeRatesFromAPI = async () => {
-      try {
-        const response = await fetch('https://paycrypt-margin-price.onrender.com/api/v3/simple/price?ids=tether&vs_currencies=ngn,usd')
-        if (response.ok) {
-          const data = await response.json()
-          if (data.tether) {
-            setExchangeRates({
-              usd: data.tether.usd || 1,
-              ngn: data.tether.ngn || 1500,
-            })
-          }
-        }
-      } catch (error) {
-        console.warn('Failed to fetch exchange rates from API:', error)
-      }
-    }
-
-    fetchExchangeRatesFromAPI()
-  }, [])
+  const [exchangeRates, setExchangeRates] = useState<ExchangeRates | null>(null)
+  const [isLoadingRates, setIsLoadingRates] = useState(false)
   const [chainBreakdown, setChainBreakdown] = useState<ChainBreakdown[]>([])
   const [showAllChains, setShowAllChains] = useState(true)
 
-  const fetchExchangeRates = async () => {
-    // Exchange rates are now provided by the Volume API
-    // This function is kept for backward compatibility
-    toast.info('Exchange rates are automatically updated with volume data')
+  const fetchExchangeRatesFromAPI = async () => {
+    setIsLoadingRates(true)
+    try {
+      const response = await fetch('https://paycrypt-margin-price.onrender.com/api/v3/simple/price?ids=tether&vs_currencies=ngn,usd')
+      if (response.ok) {
+        const data = await response.json()
+        if (data.tether) {
+          setExchangeRates({
+            usd: data.tether.usd,
+            ngn: data.tether.ngn,
+          })
+          toast.success('Exchange rates updated!')
+        }
+      } else {
+        toast.error('Failed to fetch exchange rates')
+      }
+    } catch (error) {
+      console.warn('Failed to fetch exchange rates from API:', error)
+      toast.error('Exchange rates API error')
+    } finally {
+      setIsLoadingRates(false)
+    }
   }
+
+  useEffect(() => {
+    fetchExchangeRatesFromAPI()
+  }, [])
 
   const fetchDashboardStats = async () => {
     setIsLoadingStats(true)
@@ -147,23 +146,40 @@ export default function DashboardOverviewPage() {
       if (volumeData.success && volumeData.data) {
         console.log('📦 Volume data received:', volumeData.data)
         
-        const volumeUSD = parseFloat(volumeData.data.totalVolumeUSD.replace(/,/g, ''))
-        const volumeNGN = parseFloat(volumeData.data.totalVolumeNGN.replace(/,/g, ''))
+        // Determine which volume to display based on view mode
+        let displayVolumeUSD = 0
+        let displayVolumeNGN = 0
         
-        console.log('💰 Parsed volumes:', { volumeUSD, volumeNGN })
+        if (!showAllChains && chainConfig && volumeData.data.byChain && Array.isArray(volumeData.data.byChain)) {
+          // Single chain mode: find the specific chain's volume
+          const chainVolume = volumeData.data.byChain.find((c: any) => c.chainId === chainConfig.chainId)
+          if (chainVolume) {
+            displayVolumeUSD = parseFloat(chainVolume.volumeUSD.replace(/,/g, ''))
+            displayVolumeNGN = parseFloat(chainVolume.volumeNGN.replace(/,/g, ''))
+          }
+        } else {
+          // All chains mode: use total volume
+          displayVolumeUSD = parseFloat(volumeData.data.totalVolumeUSD.replace(/,/g, ''))
+          displayVolumeNGN = parseFloat(volumeData.data.totalVolumeNGN.replace(/,/g, ''))
+        }
+        
+        console.log('💰 Parsed volumes:', { displayVolumeUSD, displayVolumeNGN, mode: showAllChains ? 'all' : chainConfig?.name })
         
         // Store as bigint for currency conversion (6 decimals)
-        setRawTotalVolumeBigInt(BigInt(Math.floor(volumeUSD * 1000000)))
+        setRawTotalVolumeBigInt(BigInt(Math.floor(displayVolumeUSD * 1000000)))
         
         // Update exchange rates from token data if available
         if (volumeData.data.tokens && volumeData.data.tokens.length > 0) {
           const avgPriceUSD = volumeData.data.tokens.reduce((sum: number, t: any) => sum + (t.priceUSD || 1), 0) / volumeData.data.tokens.length
           const avgPriceNGN = volumeData.data.tokens.reduce((sum: number, t: any) => sum + (t.priceNGN || 1500), 0) / volumeData.data.tokens.length
           
-          setExchangeRates({
-            usd: avgPriceUSD,
-            ngn: avgPriceNGN
-          })
+          // Only update if rates are not already fetched from API
+          if (!exchangeRates) {
+            setExchangeRates({
+              usd: avgPriceUSD,
+              ngn: avgPriceNGN
+            })
+          }
         }
         
         // Parse and set chain breakdown
@@ -178,7 +194,7 @@ export default function DashboardOverviewPage() {
         }
         
         const chainInfo = showAllChains ? 'all chains' : chainConfig?.name || 'selected chain'
-        console.log(`📊 Volume (${chainInfo}): $${volumeUSD.toLocaleString('en-US', { maximumFractionDigits: 2 })} USD / ₦${volumeNGN.toLocaleString('en-US', { maximumFractionDigits: 2 })} NGN`)
+        console.log(`📊 Volume (${chainInfo}): $${displayVolumeUSD.toLocaleString('en-US', { maximumFractionDigits: 2 })} USD / ₦${displayVolumeNGN.toLocaleString('en-US', { maximumFractionDigits: 2 })} NGN`)
         console.log(`🪙 Tracking ${volumeData.data.tokenCount} tokens`)
         console.log(`📈 Stats: ${orderCount} total, ${successfulOrders} successful, ${failedOrders} failed`)
       }
@@ -299,7 +315,6 @@ export default function DashboardOverviewPage() {
   }
 
   useEffect(() => {
-    fetchExchangeRates()
     fetchDashboardStats()
   }, [showAllChains, selectedChain]) // Refetch when chain selection or view mode changes
 
@@ -308,7 +323,7 @@ export default function DashboardOverviewPage() {
   }, [chartTimeframe])
 
   useEffect(() => {
-    if (rawTotalVolumeBigInt !== null) {
+    if (rawTotalVolumeBigInt !== null && exchangeRates) {
       // Convert from stored bigint (6 decimals) to USD amount
       const usdAmount = Number(rawTotalVolumeBigInt) / 1000000
       
@@ -330,6 +345,10 @@ export default function DashboardOverviewPage() {
       }
       
       setTotalVolume(displayValue)
+    } else if (rawTotalVolumeBigInt !== null && !exchangeRates) {
+      // Show USD amount without conversion if rates not available
+      const usdAmount = Number(rawTotalVolumeBigInt) / 1000000
+      setTotalVolume(`$${usdAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`)
     }
   }, [currentCurrency, rawTotalVolumeBigInt, exchangeRates])
 
@@ -376,7 +395,11 @@ export default function DashboardOverviewPage() {
             </Button>
             <Button onClick={fetchDashboardStats} disabled={isLoadingStats} variant="outline" size="sm">
               {isLoadingStats ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
-              Refresh
+              Refresh Stats
+            </Button>
+            <Button onClick={fetchExchangeRatesFromAPI} disabled={isLoadingRates} variant="outline" size="sm">
+              {isLoadingRates ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+              Refresh Rates
             </Button>
           </div>
         </div>
@@ -628,8 +651,8 @@ export default function DashboardOverviewPage() {
         </p>
         <div className="text-xs text-muted-foreground mt-2 flex gap-4">
           <span>💱 Live Exchange Rates:</span>
-          <span>1 USD = ${exchangeRates.usd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-          <span>1 USD = ₦{exchangeRates.ngn.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+          <span>1 USD = ${exchangeRates ? exchangeRates.usd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '--'}</span>
+          <span>1 USD = ₦{exchangeRates ? exchangeRates.ngn.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '--'}</span>
         </div>
       </div>
     </div>
