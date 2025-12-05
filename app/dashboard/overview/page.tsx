@@ -36,8 +36,8 @@ interface ProcessedDailyStats extends DailyStats {
 
 interface ChainBreakdown {
   chainId: number
-  volumeUSD: string
-  volumeNGN: string
+  volumeUSD: number
+  volumeNGN: number
   tokenCount: number
 }
 
@@ -68,55 +68,68 @@ export default function DashboardOverviewPage() {
   const fetchDashboardStats = async () => {
     setIsLoadingStats(true)
     try {
-      // Fetch order stats from existing endpoint
-      const statsResponse = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_API_URL}/api/stats`)
-      if (!statsResponse.ok) {
-        throw new Error("Failed to fetch dashboard stats from backend")
-      }
-      const statsData = await statsResponse.json()
-      
-      setTotalSuccessfulOrders(statsData.successfulOrders.toString())
-      setTotalFailedOrders(statsData.failedOrders.toString())
-      setOrderCounter(statsData.orderCount.toString())
+      // Fetch both endpoints in parallel for better performance
+      const [statsResponse, volumeResponse] = await Promise.all([
+        fetch(`${process.env.NEXT_PUBLIC_BACKEND_API_URL}/api/stats`),
+        fetch(
+          `${process.env.NEXT_PUBLIC_BACKEND_API_URL}/api/volume/latest${
+            !showAllChains && chainConfig 
+              ? `?chainId=${chainConfig.chainId}` 
+              : ''
+          }`
+        )
+      ])
 
-      // Fetch volume data from Volume API
-      // Build query params for chain filtering
-      const volumeParams = new URLSearchParams()
-      if (!showAllChains && chainConfig) {
-        volumeParams.append('chainId', chainConfig.chainId.toString())
+      if (!statsResponse.ok || !volumeResponse.ok) {
+        throw new Error("Failed to fetch dashboard data")
       }
-      
-      const volumeEndpoint = `${process.env.NEXT_PUBLIC_BACKEND_API_URL}/api/volume/latest${volumeParams.toString() ? '?' + volumeParams.toString() : ''}`
-      
-      const volumeResponse = await fetch(volumeEndpoint)
-      if (!volumeResponse.ok) {
-        throw new Error("Failed to fetch volume data from backend")
-      }
+
+      const statsData = await statsResponse.json()
       const volumeData = await volumeResponse.json()
-      
+
+      // Parse stats: API returns strings that need to be converted to numbers
+      const successfulOrders = parseInt(statsData.successfulOrders, 10)
+      const failedOrders = parseInt(statsData.failedOrders, 10)
+      const orderCount = parseInt(statsData.orderCount, 10)
+
+      setTotalSuccessfulOrders(successfulOrders.toLocaleString())
+      setTotalFailedOrders(failedOrders.toLocaleString())
+      setOrderCounter(orderCount.toLocaleString())
+
+      // Parse volume data: handles formatted strings with commas
       if (volumeData.success && volumeData.data) {
         const volumeUSD = parseFloat(volumeData.data.totalVolumeUSD.replace(/,/g, ''))
         const volumeNGN = parseFloat(volumeData.data.totalVolumeNGN.replace(/,/g, ''))
         
+        // Store as bigint for currency conversion (6 decimals)
         setRawTotalVolumeBigInt(BigInt(Math.floor(volumeUSD * 1000000)))
         
-        // Update exchange rates from API data
+        // Update exchange rates from token data if available
         if (volumeData.data.tokens && volumeData.data.tokens.length > 0) {
-          const firstToken = volumeData.data.tokens[0]
+          const avgPriceUSD = volumeData.data.tokens.reduce((sum: number, t: any) => sum + (t.priceUSD || 1), 0) / volumeData.data.tokens.length
+          const avgPriceNGN = volumeData.data.tokens.reduce((sum: number, t: any) => sum + (t.priceNGN || 1500), 0) / volumeData.data.tokens.length
+          
           setExchangeRates({
-            usd: firstToken.priceUSD || 1,
-            ngn: firstToken.priceNGN || 1500
+            usd: avgPriceUSD,
+            ngn: avgPriceNGN
           })
         }
         
-        // Update chain breakdown if available
-        if (volumeData.data.byChain) {
-          setChainBreakdown(volumeData.data.byChain)
+        // Parse and set chain breakdown
+        if (volumeData.data.byChain && Array.isArray(volumeData.data.byChain)) {
+          const parsedBreakdown = volumeData.data.byChain.map((chain: any) => ({
+            chainId: chain.chainId,
+            volumeUSD: parseFloat(chain.volumeUSD.replace(/,/g, '')),
+            volumeNGN: parseFloat(chain.volumeNGN.replace(/,/g, '')),
+            tokenCount: chain.tokenCount
+          }))
+          setChainBreakdown(parsedBreakdown)
         }
         
         const chainInfo = showAllChains ? 'all chains' : chainConfig?.name || 'selected chain'
-        console.log(`📊 Volume (${chainInfo}): $${volumeData.data.totalVolumeUSD} USD / ₦${volumeData.data.totalVolumeNGN} NGN`)
+        console.log(`📊 Volume (${chainInfo}): $${volumeUSD.toLocaleString('en-US', { maximumFractionDigits: 2 })} USD / ₦${volumeNGN.toLocaleString('en-US', { maximumFractionDigits: 0 })} NGN`)
         console.log(`🪙 Tracking ${volumeData.data.tokenCount} tokens`)
+        console.log(`📈 Stats: ${orderCount} total, ${successfulOrders} successful, ${failedOrders} failed`)
       }
       
       toast.success("Dashboard stats updated!")
@@ -136,14 +149,14 @@ export default function DashboardOverviewPage() {
     try {
       // Map frontend timeframe to API interval format
       const intervalMap: Record<string, string> = {
-        "1h": "3h",
+        "1h": "1h",
         "24h": "24h",
         "7d": "24h",
         "30d": "24h"
       }
       const interval = intervalMap[timeframe] || "24h"
 
-      // Fetch volume chart data from new Volume API
+      // Fetch volume chart data from Volume API - structure: { data: [...] }
       const volumeResponse = await fetch(
         `${process.env.NEXT_PUBLIC_BACKEND_API_URL}/api/volume/chart?interval=${interval}`
       )
@@ -152,9 +165,14 @@ export default function DashboardOverviewPage() {
         throw new Error("Failed to fetch volume chart data")
       }
       
-      const volumeData = await volumeResponse.json()
+      const volumeChartData = await volumeResponse.json()
+      
+      // Verify data array exists
+      if (!volumeChartData.data || !Array.isArray(volumeChartData.data)) {
+        throw new Error("Invalid volume chart response format")
+      }
 
-      // Fetch order stats chart data
+      // Fetch order stats chart data - structure: { data: [...] }
       const statsResponse = await fetch(
         `${process.env.NEXT_PUBLIC_BACKEND_API_URL}/api/stats/chart/${timeframe}`
       )
@@ -163,24 +181,40 @@ export default function DashboardOverviewPage() {
         throw new Error("Failed to fetch stats chart data")
       }
       
-      const statsData = await statsResponse.json()
+      const statsChartData = await statsResponse.json()
+      
+      // Verify data array exists
+      if (!statsChartData.data || !Array.isArray(statsChartData.data)) {
+        throw new Error("Invalid stats chart response format")
+      }
 
       // Merge volume and stats data by timestamp
-      const processedData: ProcessedDailyStats[] = volumeData.data.map((volumeItem: any) => {
-        // Parse the formatted USD string to number
+      const processedData: ProcessedDailyStats[] = volumeChartData.data.map((volumeItem: any) => {
+        // Parse the formatted USD string to number (handles commas)
         const volumeUSD = parseFloat(volumeItem.totalVolumeUSD.replace(/,/g, ''))
         
-        // Find matching stats data by timestamp
-        const statsItem = statsData.data.find((s: any) => 
+        // Find matching stats data by timestamp (within 1 minute tolerance)
+        const statsItem = statsChartData.data.find((s: any) => 
           Math.abs(new Date(s.timestamp).getTime() - new Date(volumeItem.timestamp).getTime()) < 60000
-        ) || { successfulOrders: 0, failedOrders: 0, orderCount: 0 }
+        ) || { successfulOrders: 0, failedOrders: 0, orderCount: 0, successRate: 0 }
+
+        // Parse stats values if they're strings
+        const successfulOrders = typeof statsItem.successfulOrders === 'string' 
+          ? parseInt(statsItem.successfulOrders, 10) 
+          : statsItem.successfulOrders || 0
+        const failedOrders = typeof statsItem.failedOrders === 'string'
+          ? parseInt(statsItem.failedOrders, 10)
+          : statsItem.failedOrders || 0
+        const orderCount = typeof statsItem.orderCount === 'string'
+          ? parseInt(statsItem.orderCount, 10)
+          : statsItem.orderCount || 0
 
         return {
           date: new Date(volumeItem.timestamp).toLocaleDateString("en-US", { month: "short", day: "numeric" }),
-          orderCount: statsItem.orderCount || 0,
+          orderCount,
           totalVolume: volumeUSD,
-          successfulOrders: statsItem.successfulOrders || 0,
-          failedOrders: statsItem.failedOrders || 0,
+          successfulOrders,
+          failedOrders,
           successRate: statsItem.successRate || 0,
           timestamp: volumeItem.timestamp
         }
@@ -201,8 +235,11 @@ export default function DashboardOverviewPage() {
       })
 
       setDailyStats(uniqueData)
-      console.log('📈 Chart loaded:', volumeData.statistics)
-      console.log('📊 Data points:', uniqueData.length)
+      console.log('📈 Chart data processed:', {
+        dataPoints: uniqueData.length,
+        volumePoints: volumeChartData.data.length,
+        statsPoints: statsChartData.data.length
+      })
     } catch (error) {
       console.error("Error fetching daily stats:", error)
       toast.error("Failed to load chart data.")
@@ -296,13 +333,17 @@ export default function DashboardOverviewPage() {
         {showAllChains && chainBreakdown.length > 0 && (
           <div className="flex gap-2 flex-wrap">
             {chainBreakdown.map((chain) => {
-              const chainName = chain.chainId === 8453 ? 'Base' : chain.chainId === 1135 ? 'Lisk' : 'Celo'
-              const chainIcon = chain.chainId === 8453 ? '🔵' : chain.chainId === 1135 ? '🟣' : '🟡'
+              const chainName = chain.chainId === 8453 ? 'Base' : chain.chainId === 1135 ? 'Lisk' : chain.chainId === 42220 ? 'Celo' : 'Unknown'
+              const chainIcon = chain.chainId === 8453 ? '🔵' : chain.chainId === 1135 ? '🟣' : chain.chainId === 42220 ? '🟡' : '⚪'
+              
+              // Format volume as number
+              const volumeDisplay = chain.volumeUSD.toLocaleString('en-US', { maximumFractionDigits: 2 })
+              
               return (
                 <div key={chain.chainId} className="flex items-center gap-2 px-3 py-1.5 bg-muted rounded-md text-sm">
                   <span>{chainIcon}</span>
                   <span className="font-medium">{chainName}:</span>
-                  <span className="text-muted-foreground">${chain.volumeUSD}</span>
+                  <span className="text-muted-foreground">${volumeDisplay}</span>
                 </div>
               )
             })}
@@ -388,7 +429,17 @@ export default function DashboardOverviewPage() {
           </Select>
         </div>
 
-        <div className="grid gap-6 lg:grid-cols-2">
+        {dailyStats.length === 0 ? (
+          <Card>
+            <CardContent className="p-6">
+              <div className="flex flex-col items-center justify-center gap-2 h-64">
+                <p className="text-muted-foreground">No chart data available</p>
+                <p className="text-sm text-muted-foreground">Try refreshing or selecting a different timeframe</p>
+              </div>
+            </CardContent>
+          </Card>
+        ) : (
+          <div className="grid gap-6 lg:grid-cols-2">
           <Card>
             <CardHeader>
               <CardTitle>Total Volume Over Time</CardTitle>
@@ -519,6 +570,7 @@ export default function DashboardOverviewPage() {
             </CardContent>
           </Card>
         </div>
+        )}
         
         <p className="text-sm text-muted-foreground mt-4">
           📊 Volume data from multi-chain aggregation (Base, Lisk, Celo) • Updated every 15 minutes • Real-time price conversion
