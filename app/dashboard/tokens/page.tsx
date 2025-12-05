@@ -1,25 +1,37 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { toast } from "sonner"
-import { CONTRACT_ABI, CONTRACT_ADDRESS } from "@/config/contract"
+import { CONTRACT_ABI, getContractAddressByKey, getChainConfig } from "@/config/contract"
 import { useWriteContract, useWaitForTransactionReceipt } from "wagmi"
+import { useChain } from "@/contexts/chain-context"
+import { Badge } from "@/components/ui/badge"
+import { Network } from "lucide-react"
 import { Loader2, RefreshCw, Copy } from "lucide-react"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { createPublicClient, http, formatUnits, parseUnits, type Address } from "viem"
-import { base } from "viem/chains"
+import { base, celo } from "viem/chains"
 import { Switch } from "@/components/ui/switch"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 
-const publicClient = createPublicClient({
-  chain: base,
-  transport: http(),
-})
+// Lisk chain definition (not in viem by default)
+const liskChain = {
+  id: 1135,
+  name: 'Lisk',
+  nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
+  rpcUrls: {
+    default: { http: ['https://rpc.api.lisk.com'] },
+    public: { http: ['https://rpc.api.lisk.com'] },
+  },
+  blockExplorers: {
+    default: { name: 'Blockscout', url: 'https://blockscout.lisk.com' },
+  },
+} as const
 
 interface SupportedToken {
   tokenAddress: Address
@@ -33,6 +45,34 @@ interface SupportedToken {
 }
 
 export default function ManageTokensPage() {
+  const { selectedChain, chainConfig, isLoading: isChainLoading } = useChain()
+
+  // Dynamic contract address based on selected chain
+  const contractAddress = useMemo(() => {
+    return getContractAddressByKey(selectedChain)
+  }, [selectedChain])
+
+  // Dynamic viem chain based on selected chain
+  const viemChain = useMemo(() => {
+    if (selectedChain === 'base') return base
+    if (selectedChain === 'lisk') return liskChain
+    if (selectedChain === 'celo') return celo
+    return base
+  }, [selectedChain])
+
+  // Dynamic public client based on selected chain
+  const publicClient = useMemo(() => {
+    return createPublicClient({
+      chain: viemChain,
+      transport: http(chainConfig?.rpcUrl),
+    })
+  }, [viemChain, chainConfig?.rpcUrl])
+
+  // Dynamic explorer URL
+  const explorerUrl = useMemo(() => {
+    return chainConfig?.explorer || 'https://basescan.org'
+  }, [chainConfig])
+
   const [newTokenAddress, setNewTokenAddress] = useState<string>("")
   const [newTokenName, setNewTokenName] = useState<string>("")
   const [newTokenDecimals, setNewTokenDecimals] = useState<number>(6) // Default to 6 for USDC/USDT
@@ -54,7 +94,7 @@ export default function ManageTokensPage() {
     setIsLoadingTokens(true)
     try {
       const tokenAddresses = (await publicClient.readContract({
-        address: CONTRACT_ADDRESS,
+        address: contractAddress,
         abi: CONTRACT_ABI,
         functionName: "getSupportedTokens",
       })) as Address[]
@@ -62,7 +102,7 @@ export default function ManageTokensPage() {
       const tokenDetailsPromises = tokenAddresses.map(async (address) => {
         try {
           const details = (await publicClient.readContract({
-            address: CONTRACT_ADDRESS,
+            address: contractAddress,
             abi: CONTRACT_ABI,
             functionName: "getTokenDetails",
             args: [address],
@@ -100,7 +140,7 @@ export default function ManageTokensPage() {
 
     try {
       const details = (await publicClient.readContract({
-        address: CONTRACT_ADDRESS,
+        address: contractAddress,
         abi: CONTRACT_ABI,
         functionName: "getTokenDetails",
         args: [address as Address],
@@ -120,8 +160,10 @@ export default function ManageTokensPage() {
   }
 
   useEffect(() => {
-    fetchSupportedTokens()
-  }, [])
+    if (!isChainLoading && contractAddress) {
+      fetchSupportedTokens()
+    }
+  }, [selectedChain, contractAddress, isChainLoading])
 
   useEffect(() => {
     if (isConfirmed) {
@@ -160,12 +202,13 @@ export default function ManageTokensPage() {
     }
     try {
       writeContract({
-        address: CONTRACT_ADDRESS,
+        address: contractAddress,
         abi: CONTRACT_ABI,
         functionName: "addSupportedToken",
         args: [newTokenAddress as Address, newTokenName, newTokenDecimals],
+        chainId: chainConfig?.chainId,
       })
-      toast.info("Adding supported token...")
+      toast.info(`Adding supported token on ${chainConfig?.name}...`)
     } catch (error: any) {
       console.error("Error adding supported token:", error)
       toast.error(`Failed to add token: ${error.message || error}`)
@@ -183,12 +226,13 @@ export default function ManageTokensPage() {
       const parsedLimit = parseUnits(newLimit, selectedTokenForLimit.decimals)
       
       writeContract({
-        address: CONTRACT_ADDRESS,
+        address: contractAddress,
         abi: CONTRACT_ABI,
         functionName: "updateOrderLimit",
         args: [tokenAddressToUpdate as Address, parsedLimit],
+        chainId: chainConfig?.chainId,
       })
-      toast.info(`Updating order limit to ${newLimit} ${selectedTokenForLimit.name}...`)
+      toast.info(`Updating order limit to ${newLimit} ${selectedTokenForLimit.name} on ${chainConfig?.name}...`)
     } catch (error: any) {
       console.error("Error updating order limit:", error)
       toast.error(`Failed to update limit: ${error.message || error}`)
@@ -202,12 +246,13 @@ export default function ManageTokensPage() {
     }
     try {
       writeContract({
-        address: CONTRACT_ADDRESS,
+        address: contractAddress,
         abi: CONTRACT_ABI,
         functionName: "setTokenStatus",
         args: [tokenAddressToToggle as Address, tokenStatus],
+        chainId: chainConfig?.chainId,
       })
-      toast.info(`${tokenStatus ? "Activating" : "Deactivating"} token...`)
+      toast.info(`${tokenStatus ? "Activating" : "Deactivating"} token on ${chainConfig?.name}...`)
     } catch (error: any) {
       console.error("Error setting token status:", error)
       toast.error(`Failed to set token status: ${error.message || error}`)
@@ -230,7 +275,15 @@ export default function ManageTokensPage() {
   return (
     <div className="flex-1 p-4 md:p-8 overflow-auto">
       <div className="flex items-center justify-between mb-6">
-        <h1 className="text-3xl font-bold">Manage ERC20 Tokens</h1>
+        <div className="flex items-center gap-3">
+          <h1 className="text-3xl font-bold">Manage ERC20 Tokens</h1>
+          {chainConfig && (
+            <Badge variant="outline" className="flex items-center gap-1">
+              <Network className="h-3 w-3" />
+              {chainConfig.name} Chain
+            </Badge>
+          )}
+        </div>
         <Button onClick={fetchSupportedTokens} disabled={isLoadingTokens} variant="outline" size="sm">
           {isLoadingTokens ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
           Refresh
@@ -460,7 +513,7 @@ export default function ManageTokensPage() {
                         <TableCell>
                           <div className="flex items-center gap-2">
                             <a
-                              href={`https://basescan.org/token/${token.tokenAddress}`}
+                              href={`${explorerUrl}/token/${token.tokenAddress}`}
                               target="_blank"
                               rel="noopener noreferrer"
                               className="underline font-mono text-sm"
@@ -555,7 +608,7 @@ export default function ManageTokensPage() {
           <p className="text-sm">
             <strong>Transaction Hash:</strong>{" "}
             <a
-              href={`https://basescan.org/tx/${hash}`}
+              href={`${explorerUrl}/tx/${hash}`}
               target="_blank"
               rel="noopener noreferrer"
               className="underline"

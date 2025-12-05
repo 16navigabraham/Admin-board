@@ -5,6 +5,7 @@ import { useChain } from '@/contexts/chain-context'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
 
+
 export function ChainSelector() {
   const { selectedChain, setSelectedChain, isLoading } = useChain()
 

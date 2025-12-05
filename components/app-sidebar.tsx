@@ -21,6 +21,7 @@ import { usePathname } from "next/navigation"
 import { useTheme } from "next-themes"
 import { ConnectButton } from "@rainbow-me/rainbowkit"
 import { paycryptAPI } from "@/lib/auth"
+import { ChainSelector } from "@/components/chain-selector"
 
 const menuItems = [
   {
@@ -69,6 +70,9 @@ export function AppSidebar() {
             <span className="text-lg">Paycrypt Admin</span>
           </Link>
           <SidebarTrigger variant="ghost" size="icon" className="h-7 w-7" />
+        </div>
+        <div className="px-2 pb-2">
+          <ChainSelector />
         </div>
       </SidebarHeader>
       <SidebarContent>
