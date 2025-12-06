@@ -644,6 +644,7 @@ export default function ManageOrdersPage() {
                     <TableRow>
                       <TableHead>Order ID</TableHead>
                       <TableHead>Request ID</TableHead>
+                      <TableHead>Chain</TableHead>
                       <TableHead>Txn Hash</TableHead>
                       <TableHead>User Wallet</TableHead>
                       <TableHead>Token Address</TableHead>
@@ -654,7 +655,10 @@ export default function ManageOrdersPage() {
                   </TableHeader>
                   <TableBody>
                     <TooltipProvider delayDuration={0}>
-                      {transactionHistory.map((tx) => (
+                      {transactionHistory.map((tx) => {
+                        const chainName = tx.chainId === 8453 ? 'Base' : tx.chainId === 1135 ? 'Lisk' : tx.chainId === 42220 ? 'Celo' : 'Unknown'
+                        const chainIcon = tx.chainId === 8453 ? '🔵' : tx.chainId === 1135 ? '🟣' : tx.chainId === 42220 ? '🟡' : '⚪'
+                        return (
                         <TableRow key={tx.txnHash}>
                           <TableCell className="font-semibold">{tx.orderId}</TableCell>
                           <TableCell>
@@ -666,6 +670,12 @@ export default function ManageOrdersPage() {
                               </TooltipTrigger>
                               <TooltipContent>{tx.requestId}</TooltipContent>
                             </Tooltip>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-1">
+                              <span>{chainIcon}</span>
+                              <span className="font-medium">{chainName}</span>
+                            </div>
                           </TableCell>
                           <TableCell className="font-medium">
                             <div className="flex items-center gap-2">
@@ -766,7 +776,7 @@ export default function ManageOrdersPage() {
                             )}
                           </TableCell>
                         </TableRow>
-                      ))}
+                      )})}
                     </TooltipProvider>
                   </TableBody>
                 </Table>
@@ -814,6 +824,7 @@ export default function ManageOrdersPage() {
                   <TableHeader>
                     <TableRow>
                       <TableHead>Request ID</TableHead>
+                      <TableHead>Chain</TableHead>
                       <TableHead>Txn Hash</TableHead>
                       <TableHead>Service Type</TableHead>
                       <TableHead>Amount (₦)</TableHead>
@@ -826,7 +837,10 @@ export default function ManageOrdersPage() {
                   </TableHeader>
                   <TableBody>
                     <TooltipProvider delayDuration={0}>
-                      {mainPlatformHistory.map((order) => (
+                      {mainPlatformHistory.map((order) => {
+                        const chainName = order.chainName || 'Unknown'
+                        const chainIcon = chainName === 'Base' ? '🔵' : chainName === 'Lisk' ? '🟣' : chainName === 'Celo' ? '🟡' : '⚪'
+                        return (
                         <TableRow key={order._id}>
                           <TableCell>
                             <div className="flex items-center gap-2">
@@ -852,6 +866,12 @@ export default function ManageOrdersPage() {
                                 </TooltipTrigger>
                                 <TooltipContent>Copy Request ID</TooltipContent>
                               </Tooltip>
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-1">
+                              <span>{chainIcon}</span>
+                              <span className="font-medium">{chainName}</span>
                             </div>
                           </TableCell>
                           <TableCell className="font-medium">
@@ -924,7 +944,7 @@ export default function ManageOrdersPage() {
                             </div>
                           </TableCell>
                         </TableRow>
-                      ))}
+                      )})}
                     </TooltipProvider>
                   </TableBody>
                 </Table>
