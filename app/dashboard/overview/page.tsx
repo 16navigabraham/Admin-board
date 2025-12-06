@@ -123,19 +123,20 @@ export default function DashboardOverviewPage() {
       }
 
       // Always fetch volume data - it's the primary data source
-      const volumeResponse = await fetch(
-        `${process.env.NEXT_PUBLIC_BACKEND_API_URL}/api/volume/latest${
-          !showAllChains && chainConfig 
-            ? `?chainId=${chainConfig.chainId}` 
-            : ''
-        }`
-      )
+      const volumeUrl = !showAllChains && chainConfig 
+        ? `${process.env.NEXT_PUBLIC_BACKEND_API_URL}/api/volume/latest?chainId=${chainConfig.chainId}`
+        : `${process.env.NEXT_PUBLIC_BACKEND_API_URL}/api/volume/latest`
+      
+      console.log('📥 Fetching volume from:', volumeUrl)
+      
+      const volumeResponse = await fetch(volumeUrl)
 
       if (!volumeResponse.ok) {
         throw new Error("Failed to fetch volume data")
       }
 
       const volumeData = await volumeResponse.json()
+      console.log('📦 Full volume response:', volumeData)
 
       // Set stats - use parsed values or placeholder if unavailable
       setTotalSuccessfulOrders(successfulOrders > 0 ? successfulOrders.toLocaleString() : "0")
@@ -145,17 +146,33 @@ export default function DashboardOverviewPage() {
       // Parse volume data: handles formatted strings with commas
       if (volumeData.success && volumeData.data) {
         console.log('📦 Volume data received:', volumeData.data)
+        console.log('🔍 Chain mode:', { showAllChains, chainId: chainConfig?.chainId, chainName: chainConfig?.name })
         
         // Determine which volume to display based on view mode
         let displayVolumeUSD = 0
         let displayVolumeNGN = 0
         
-        if (!showAllChains && chainConfig && volumeData.data.byChain && Array.isArray(volumeData.data.byChain)) {
-          // Single chain mode: find the specific chain's volume
-          const chainVolume = volumeData.data.byChain.find((c: any) => c.chainId === chainConfig.chainId)
-          if (chainVolume) {
-            displayVolumeUSD = parseFloat(chainVolume.volumeUSD.replace(/,/g, ''))
-            displayVolumeNGN = parseFloat(chainVolume.volumeNGN.replace(/,/g, ''))
+        if (!showAllChains && chainConfig) {
+          // Single chain mode: check if response has byChain array (all chains response) or is single chain data
+          if (volumeData.data.byChain && Array.isArray(volumeData.data.byChain)) {
+            // Response includes all chains - find the specific chain
+            console.log('🔗 Searching for chain in byChain:', volumeData.data.byChain)
+            const chainVolume = volumeData.data.byChain.find((c: any) => c.chainId === chainConfig.chainId)
+            console.log('🎯 Found chain volume:', chainVolume)
+            if (chainVolume) {
+              displayVolumeUSD = parseFloat(chainVolume.volumeUSD.replace(/,/g, ''))
+              displayVolumeNGN = parseFloat(chainVolume.volumeNGN.replace(/,/g, ''))
+            } else {
+              console.warn(`⚠️ Chain ${chainConfig.chainId} not found in byChain array`)
+              // Fallback to total if chain not found
+              displayVolumeUSD = parseFloat(volumeData.data.totalVolumeUSD.replace(/,/g, ''))
+              displayVolumeNGN = parseFloat(volumeData.data.totalVolumeNGN.replace(/,/g, ''))
+            }
+          } else {
+            // Response is single chain data (no byChain array) - use totalVolumeUSD/NGN directly
+            console.log('🔗 Single chain response detected, using total volume directly')
+            displayVolumeUSD = parseFloat(volumeData.data.totalVolumeUSD.replace(/,/g, ''))
+            displayVolumeNGN = parseFloat(volumeData.data.totalVolumeNGN.replace(/,/g, ''))
           }
         } else {
           // All chains mode: use total volume
@@ -315,8 +332,9 @@ export default function DashboardOverviewPage() {
   }
 
   useEffect(() => {
+    console.log('🔄 Refetch triggered - Chain changed or view mode changed')
     fetchDashboardStats()
-  }, [showAllChains, selectedChain]) // Refetch when chain selection or view mode changes
+  }, [showAllChains, selectedChain, chainConfig?.chainId]) // Refetch when chain selection or view mode changes
 
   useEffect(() => {
     fetchDailyStats(chartTimeframe)

@@ -47,6 +47,7 @@ interface OrderHistoryItem {
   blockNumber: number
   timestamp: string // ISO string from backend
   chainId: number // Chain ID (8453=Base, 1135=Lisk, 42220=Celo)
+  chainName?: string // Human-readable chain name (Base, Lisk, Celo)
 }
 
 // Interface for main platform database orders
@@ -65,6 +66,7 @@ interface MainPlatformOrder {
   vtpassStatus: string
   createdAt: string
   updatedAt: string
+  chainName?: string // Human-readable chain name (Base, Lisk, Celo)
 }
 
 export default function ManageOrdersPage() {
