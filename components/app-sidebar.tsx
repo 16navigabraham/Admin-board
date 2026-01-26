@@ -15,7 +15,7 @@ import {
   SidebarTrigger,
   useSidebar,
 } from "@/components/ui/sidebar"
-import { Home, Package, Users, Settings, PanelLeft, Wallet, Moon, Sun, ListOrdered, LogOut } from "lucide-react" // Added ListOrdered and LogOut icons
+import { Home, Package, Users, Settings, PanelLeft, Wallet, Moon, Sun, ListOrdered, LogOut, BarChart3 } from "lucide-react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useTheme } from "next-themes"
@@ -35,9 +35,14 @@ const menuItems = [
     icon: Package,
   },
   {
-    title: "All Create Orders", // New menu item
-    href: "/dashboard/all-orders", // New path
-    icon: ListOrdered, // New icon
+    title: "All Create Orders",
+    href: "/dashboard/all-orders",
+    icon: ListOrdered,
+  },
+  {
+    title: "Analytics",
+    href: "/dashboard/analytics",
+    icon: BarChart3,
   },
   {
     title: "Manage Tokens",

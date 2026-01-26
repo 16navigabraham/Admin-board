@@ -4,7 +4,8 @@ import { CardDescription } from "@/components/ui/card"
 
 import { useState, useEffect } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { DollarSign, Package, XCircle, CheckCircle, RefreshCw, Loader2, Network } from 'lucide-react'
+import { DollarSign, Package, XCircle, CheckCircle, RefreshCw, Loader2, Network, Download, BarChart3 } from 'lucide-react'
+import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { toast } from "sonner"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -12,6 +13,7 @@ import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/
 import { Bar, BarChart, Line, LineChart, XAxis, YAxis, CartesianGrid, Legend, ResponsiveContainer } from "recharts"
 import { useChain } from "@/contexts/chain-context"
 import { Badge } from "@/components/ui/badge"
+import { exportDashboardStatsToExcel } from "@/lib/export-utils"
 
 type Currency = "USDC" | "USD" | "NGN"
 
@@ -380,13 +382,39 @@ export default function DashboardOverviewPage() {
       color: "#10B981",
     },
     failedOrders: {
-      label: "Failed Orders", 
+      label: "Failed Orders",
       color: "#EF4444",
     },
     orderCount: {
       label: "Total Orders",
       color: "#8B5CF6",
     },
+  }
+
+  const handleExportDashboardReport = async () => {
+    try {
+      // Build summary data
+      const summaryData = [
+        { metric: 'Report Date', value: new Date().toLocaleString() },
+        { metric: 'View Mode', value: showAllChains ? 'All Chains' : (chainConfig?.name || 'Unknown') },
+        { metric: 'Timeframe', value: chartTimeframe },
+        { metric: 'Total Volume', value: totalVolume },
+        { metric: 'Successful Orders', value: totalSuccessfulOrders },
+        { metric: 'Failed Orders', value: totalFailedOrders },
+        { metric: 'Order Counter', value: orderCounter },
+        { metric: 'Exchange Rate (USD)', value: exchangeRates ? `$${exchangeRates.usd.toFixed(2)}` : 'N/A' },
+        { metric: 'Exchange Rate (NGN)', value: exchangeRates ? `₦${exchangeRates.ngn.toFixed(2)}` : 'N/A' }
+      ]
+
+      const chainInfo = showAllChains ? 'all_chains' : (chainConfig?.name || 'unknown').toLowerCase()
+      const filename = `dashboard_report_${chainInfo}_${chartTimeframe}_${new Date().toISOString().split('T')[0]}.xlsx`
+
+      await exportDashboardStatsToExcel(summaryData, dailyStats, chainBreakdown, filename)
+      toast.success('Dashboard report exported to Excel!')
+    } catch (error: any) {
+      console.error('Export error:', error)
+      toast.error(`Failed to export report: ${error.message}`)
+    }
   }
 
   return (
@@ -418,6 +446,16 @@ export default function DashboardOverviewPage() {
             <Button onClick={fetchExchangeRatesFromAPI} disabled={isLoadingRates} variant="outline" size="sm">
               {isLoadingRates ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
               Refresh Rates
+            </Button>
+            <Button onClick={handleExportDashboardReport} variant="outline" size="sm">
+              <Download className="mr-2 h-4 w-4" />
+              Export Report
+            </Button>
+            <Button asChild variant="outline" size="sm">
+              <Link href="/dashboard/analytics">
+                <BarChart3 className="mr-2 h-4 w-4" />
+                Detailed Analytics
+              </Link>
             </Button>
           </div>
         </div>

@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo } from "react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { Loader2, Copy, Network, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Loader2, Copy, Network, ChevronLeft, ChevronRight, Download } from 'lucide-react'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { toast } from "sonner"
@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button"
 import { useChain } from "@/contexts/chain-context"
 import { Badge } from "@/components/ui/badge"
 import { getChainConfig } from "@/config/contract"
+import { exportOrdersToExcel } from "@/lib/export-utils"
 
 // Interface matching the backend's Order structure
 interface Order {
@@ -125,6 +126,36 @@ export default function AllOrdersPage() {
     toast.info(`${label} copied to clipboard.`)
   }
 
+  const handleExportToExcel = async () => {
+    if (allCreateOrders.length === 0) {
+      toast.error("No orders to export.")
+      return
+    }
+
+    try {
+      const exportData = allCreateOrders.map(order => ({
+        orderId: order.orderId,
+        requestId: order.requestId,
+        userWallet: order.userWallet,
+        tokenAddress: order.tokenAddress,
+        amount: order.amount,
+        txnHash: order.txnHash,
+        timestamp: order.timestamp,
+        chainId: order.chainId,
+        chainName: getChainName(order.chainId)
+      }))
+
+      const chainInfo = showAllChains ? 'all_chains' : (chainConfig?.name || 'unknown').toLowerCase()
+      const filename = `orders_${chainInfo}_${timeframe}_${new Date().toISOString().split('T')[0]}.xlsx`
+
+      await exportOrdersToExcel(exportData, filename, 'Order History')
+      toast.success(`Exported ${exportData.length} orders to Excel!`)
+    } catch (error: any) {
+      console.error('Export error:', error)
+      toast.error(`Failed to export: ${error.message}`)
+    }
+  }
+
   return (
     <div className="flex-1 p-4 md:p-8 overflow-auto">
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6">
@@ -163,7 +194,17 @@ export default function AllOrdersPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="flex justify-end mb-4">
+          <div className="flex justify-end gap-3 mb-4">
+            <Button
+              onClick={handleExportToExcel}
+              variant="outline"
+              size="sm"
+              disabled={allCreateOrders.length === 0 || isFetchingOrders}
+              className="flex items-center gap-2"
+            >
+              <Download className="h-4 w-4" />
+              Export to Excel
+            </Button>
             <Select value={timeframe} onValueChange={setTimeframe}>
               <SelectTrigger className="w-[180px]">
                 <SelectValue placeholder="Select Timeframe" />

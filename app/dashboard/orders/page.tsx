@@ -11,11 +11,13 @@ import { createPublicClient, http, decodeFunctionData, type Hex, decodeEventLog,
 import { base, celo } from "viem/chains"
 import { useWriteContract, useWaitForTransactionReceipt, useSwitchChain } from "wagmi"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { Loader2, Copy, Search, Network } from 'lucide-react'
+import { Loader2, Copy, Search, Network, Download } from 'lucide-react'
 import { getUserHistory } from "@/lib/api"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { useChain } from "@/contexts/chain-context"
 import { Badge } from "@/components/ui/badge"
+import { exportOrdersToExcel, exportMainPlatformOrdersToExcel } from "@/lib/export-utils"
+import { fetchUserAnalytics, type UserAnalyticsResponse, getChainName as getAnalyticsChainName, getChainIcon, formatVolume } from "@/lib/analytics-api"
 
 // Define Lisk chain config (not in viem by default)
 const liskChain = {
@@ -86,8 +88,14 @@ export default function ManageOrdersPage() {
 
   const [requestIdToDecode, setRequestIdToDecode] = useState<string>("")
   const [decodedRequestIdBytes32, setDecodedRequestIdBytes32] = useState<Hex | null>(null)
-  const [foundTxnByRequestId, setFoundTxnByRequestId] = useState<any | null>(null) // Adjusted type for simulated data
+  const [foundTxnByRequestId, setFoundTxnByRequestId] = useState<any | null>(null)
   const [isSearchingRequestId, setIsSearchingRequestId] = useState(false)
+
+  // User analytics state
+  const [userAnalytics, setUserAnalytics] = useState<UserAnalyticsResponse | null>(null)
+  const [isFetchingUserAnalytics, setIsFetchingUserAnalytics] = useState(false)
+  const [userAnalyticsAddress, setUserAnalyticsAddress] = useState<string>("")
+  const [userAnalyticsTimeframe, setUserAnalyticsTimeframe] = useState<string>("30d")
 
   const { data: hash, writeContract, isPending: isWriting, error: writeError } = useWriteContract()
 
@@ -373,17 +381,100 @@ export default function ManageOrdersPage() {
   }
 
   const getStatusBadge = (status: string) => {
-    const statusClass = status === "successful" 
-      ? "bg-green-100 text-green-800" 
-      : status === "failed" 
-      ? "bg-red-100 text-red-800" 
+    const statusClass = status === "successful"
+      ? "bg-green-100 text-green-800"
+      : status === "failed"
+      ? "bg-red-100 text-red-800"
       : "bg-yellow-100 text-yellow-800"
-    
+
     return (
       <span className={`px-2 py-1 rounded-full text-xs font-semibold ${statusClass}`}>
         {status}
       </span>
     )
+  }
+
+  const handleExportTransactionHistory = async () => {
+    if (transactionHistory.length === 0) {
+      toast.error("No transaction history to export.")
+      return
+    }
+
+    try {
+      const getChainNameLocal = (chainId: number) =>
+        chainId === 8453 ? 'Base' : chainId === 1135 ? 'Lisk' : chainId === 42220 ? 'Celo' : 'Unknown'
+
+      const exportData = transactionHistory.map(tx => ({
+        orderId: tx.orderId,
+        requestId: tx.requestId,
+        userWallet: tx.userWallet,
+        tokenAddress: tx.tokenAddress,
+        amount: tx.amount,
+        txnHash: tx.txnHash,
+        timestamp: tx.timestamp,
+        chainId: tx.chainId,
+        chainName: getChainNameLocal(tx.chainId)
+      }))
+
+      const filename = `user_orders_${historyAddress.slice(0, 8)}_${new Date().toISOString().split('T')[0]}.xlsx`
+      await exportOrdersToExcel(exportData, filename, 'User Orders')
+      toast.success(`Exported ${exportData.length} orders to Excel!`)
+    } catch (error: any) {
+      console.error('Export error:', error)
+      toast.error(`Failed to export: ${error.message}`)
+    }
+  }
+
+  const handleExportMainPlatformHistory = async () => {
+    if (mainPlatformHistory.length === 0) {
+      toast.error("No main platform history to export.")
+      return
+    }
+
+    try {
+      const exportData = mainPlatformHistory.map(order => ({
+        requestId: order.requestId,
+        chainName: order.chainName || 'Unknown',
+        transactionHash: order.transactionHash,
+        serviceType: order.serviceType,
+        serviceID: order.serviceID,
+        customerIdentifier: order.customerIdentifier,
+        amountNaira: order.amountNaira,
+        cryptoUsed: order.cryptoUsed,
+        cryptoSymbol: order.cryptoSymbol,
+        onChainStatus: order.onChainStatus,
+        vtpassStatus: order.vtpassStatus,
+        createdAt: new Date(order.createdAt).toLocaleString()
+      }))
+
+      const filename = `main_platform_orders_${mainPlatformHistoryAddress.slice(0, 8)}_${new Date().toISOString().split('T')[0]}.xlsx`
+      await exportMainPlatformOrdersToExcel(exportData, filename)
+      toast.success(`Exported ${exportData.length} main platform orders to Excel!`)
+    } catch (error: any) {
+      console.error('Export error:', error)
+      toast.error(`Failed to export: ${error.message}`)
+    }
+  }
+
+  const handleFetchUserAnalytics = async () => {
+    if (!userAnalyticsAddress) {
+      toast.error("Please enter a wallet address to fetch user analytics.")
+      return
+    }
+    setIsFetchingUserAnalytics(true)
+    setUserAnalytics(null)
+    try {
+      const data = await fetchUserAnalytics(userAnalyticsAddress, {
+        range: userAnalyticsTimeframe
+      })
+      setUserAnalytics(data)
+      toast.success("User analytics fetched successfully!")
+    } catch (error: any) {
+      console.error("Error fetching user analytics:", error)
+      toast.error(`Failed to fetch user analytics: ${error.message || error}`)
+    } finally {
+      setIsFetchingUserAnalytics(false)
+    }
   }
 
   return (
@@ -628,15 +719,27 @@ export default function ManageOrdersPage() {
                 className="mt-1"
               />
             </div>
-            <Button onClick={handleFetchTransactionHistory} disabled={isFetchingHistory}>
-              {isFetchingHistory ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Fetching...
-                </>
-              ) : (
-                "Fetch Transaction History"
+            <div className="flex gap-2">
+              <Button onClick={handleFetchTransactionHistory} disabled={isFetchingHistory}>
+                {isFetchingHistory ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Fetching...
+                  </>
+                ) : (
+                  "Fetch Transaction History"
+                )}
+              </Button>
+              {transactionHistory.length > 0 && (
+                <Button
+                  onClick={handleExportTransactionHistory}
+                  variant="outline"
+                  className="flex items-center gap-2"
+                >
+                  <Download className="h-4 w-4" />
+                  Export to Excel
+                </Button>
               )}
-            </Button>
+            </div>
             {transactionHistory.length > 0 && (
               <div className="mt-4 border rounded-md overflow-hidden">
                 <Table>
@@ -809,15 +912,27 @@ export default function ManageOrdersPage() {
                 className="mt-1"
               />
             </div>
-            <Button onClick={handleFetchMainPlatformHistory} disabled={isFetchingMainPlatformHistory}>
-              {isFetchingMainPlatformHistory ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Fetching...
-                </>
-              ) : (
-                "Fetch Main Platform History"
+            <div className="flex gap-2">
+              <Button onClick={handleFetchMainPlatformHistory} disabled={isFetchingMainPlatformHistory}>
+                {isFetchingMainPlatformHistory ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Fetching...
+                  </>
+                ) : (
+                  "Fetch Main Platform History"
+                )}
+              </Button>
+              {mainPlatformHistory.length > 0 && (
+                <Button
+                  onClick={handleExportMainPlatformHistory}
+                  variant="outline"
+                  className="flex items-center gap-2"
+                >
+                  <Download className="h-4 w-4" />
+                  Export to Excel
+                </Button>
               )}
-            </Button>
+            </div>
             {mainPlatformHistory.length > 0 && (
               <div className="mt-4 border rounded-md overflow-hidden">
                 <Table>
@@ -952,6 +1067,167 @@ export default function ManageOrdersPage() {
             )}
             {mainPlatformHistory.length === 0 && !isFetchingMainPlatformHistory && mainPlatformHistoryAddress && (
               <p className="text-center text-muted-foreground">No transactions found for this address on the main platform.</p>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* User Analytics Card */}
+      <Card className="mb-6">
+        <CardHeader>
+          <CardTitle>User Analytics (Comprehensive)</CardTitle>
+          <CardDescription>
+            Get detailed analytics for a specific user including chain breakdown, token usage, and order statistics.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-4">
+            <div className="flex gap-4">
+              <div className="flex-1">
+                <Label htmlFor="user-analytics-address">User Wallet Address</Label>
+                <Input
+                  id="user-analytics-address"
+                  placeholder="0x..."
+                  value={userAnalyticsAddress}
+                  onChange={(e) => setUserAnalyticsAddress(e.target.value)}
+                  className="mt-1"
+                />
+              </div>
+              <div className="w-[150px]">
+                <Label htmlFor="user-analytics-timeframe">Timeframe</Label>
+                <select
+                  id="user-analytics-timeframe"
+                  value={userAnalyticsTimeframe}
+                  onChange={(e) => setUserAnalyticsTimeframe(e.target.value)}
+                  className="mt-1 w-full h-10 px-3 rounded-md border border-input bg-background text-sm"
+                >
+                  <option value="24h">Last 24 Hours</option>
+                  <option value="7d">Last 7 Days</option>
+                  <option value="30d">Last 30 Days</option>
+                  <option value="month">Last Month</option>
+                  <option value="year">Last Year</option>
+                </select>
+              </div>
+            </div>
+            <Button onClick={handleFetchUserAnalytics} disabled={isFetchingUserAnalytics}>
+              {isFetchingUserAnalytics ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Fetching Analytics...
+                </>
+              ) : (
+                <>
+                  <Search className="mr-2 h-4 w-4" /> Fetch User Analytics
+                </>
+              )}
+            </Button>
+
+            {userAnalytics && (
+              <div className="mt-4 space-y-4">
+                {/* Stats Summary */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  <div className="p-4 border rounded-md bg-muted">
+                    <p className="text-sm text-muted-foreground">Total Orders</p>
+                    <p className="text-2xl font-bold">{userAnalytics.stats.orderCount}</p>
+                  </div>
+                  <div className="p-4 border rounded-md bg-muted">
+                    <p className="text-sm text-muted-foreground">Total Volume</p>
+                    <p className="text-2xl font-bold">{formatVolume(userAnalytics.stats.totalVolume)}</p>
+                  </div>
+                  <div className="p-4 border rounded-md bg-muted">
+                    <p className="text-sm text-muted-foreground">Avg Amount</p>
+                    <p className="text-2xl font-bold">${userAnalytics.stats.averageAmount.toFixed(2)}</p>
+                  </div>
+                  <div className="p-4 border rounded-md bg-muted">
+                    <p className="text-sm text-muted-foreground">Chains Used</p>
+                    <p className="text-2xl font-bold">{userAnalytics.stats.uniqueChains}</p>
+                  </div>
+                </div>
+
+                {/* First/Last Order */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="p-3 border rounded-md">
+                    <p className="text-sm text-muted-foreground">First Order</p>
+                    <p className="font-medium">{new Date(userAnalytics.stats.firstOrder).toLocaleString()}</p>
+                  </div>
+                  <div className="p-3 border rounded-md">
+                    <p className="text-sm text-muted-foreground">Last Order</p>
+                    <p className="font-medium">{new Date(userAnalytics.stats.lastOrder).toLocaleString()}</p>
+                  </div>
+                </div>
+
+                {/* Chain Breakdown */}
+                {userAnalytics.chainBreakdown.length > 0 && (
+                  <div className="border rounded-md p-4">
+                    <h4 className="font-semibold mb-3">Chain Breakdown</h4>
+                    <div className="space-y-2">
+                      {userAnalytics.chainBreakdown.map((chain) => (
+                        <div key={chain.chainId} className="flex items-center justify-between p-2 bg-muted rounded">
+                          <div className="flex items-center gap-2">
+                            <span>{getChainIcon(chain.chainId)}</span>
+                            <span className="font-medium">{chain.chainName}</span>
+                          </div>
+                          <div className="text-right">
+                            <span className="font-medium">{chain.orderCount} orders</span>
+                            <span className="text-muted-foreground ml-2">({formatVolume(chain.totalVolume)})</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Token Breakdown */}
+                {userAnalytics.tokenBreakdown.length > 0 && (
+                  <div className="border rounded-md p-4">
+                    <h4 className="font-semibold mb-3">Token Breakdown (Top 5)</h4>
+                    <div className="space-y-2">
+                      {userAnalytics.tokenBreakdown.slice(0, 5).map((token) => (
+                        <div key={token.tokenAddress} className="flex items-center justify-between p-2 bg-muted rounded">
+                          <span className="font-mono text-sm">
+                            {token.tokenAddress.slice(0, 8)}...{token.tokenAddress.slice(-6)}
+                          </span>
+                          <div className="text-right">
+                            <span className="font-medium">{token.orderCount} orders</span>
+                            <span className="text-muted-foreground ml-2">({formatVolume(token.totalVolume)})</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Recent Orders */}
+                {userAnalytics.recentOrders.length > 0 && (
+                  <div className="border rounded-md p-4">
+                    <h4 className="font-semibold mb-3">Recent Orders</h4>
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Order ID</TableHead>
+                          <TableHead>Chain</TableHead>
+                          <TableHead>Amount</TableHead>
+                          <TableHead>Timestamp</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {userAnalytics.recentOrders.slice(0, 10).map((order) => (
+                          <TableRow key={order.orderId}>
+                            <TableCell className="font-mono">{order.orderId}</TableCell>
+                            <TableCell>
+                              <Badge variant="outline" className="flex items-center gap-1 w-fit">
+                                <span>{getChainIcon(order.chainId)}</span>
+                                {getAnalyticsChainName(order.chainId)}
+                              </Badge>
+                            </TableCell>
+                            <TableCell>${order.amount.toFixed(2)}</TableCell>
+                            <TableCell>{new Date(order.timestamp).toLocaleString()}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                )}
+              </div>
             )}
           </div>
         </CardContent>

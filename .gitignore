@@ -2,6 +2,7 @@
 node_modules
 dist
 .next
+.claude
 
 OVERVIEW_PAGE_FIX_SUMMARY.md
 OVERVIEW_PAGE_CHANGES.md
