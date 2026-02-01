@@ -13,6 +13,7 @@ import { useWriteContract, useWaitForTransactionReceipt, useSwitchChain } from "
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Loader2, Copy, Search, Network, Download } from 'lucide-react'
 import { getUserHistory } from "@/lib/api"
+import { MAIN_PLATFORM_API_BASE, mainPlatformApiUrl } from "@/lib/mainPlatformApi"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { useChain } from "@/contexts/chain-context"
 import { Badge } from "@/components/ui/badge"
@@ -305,7 +306,9 @@ export default function ManageOrdersPage() {
     setIsFetchingMainPlatformHistory(true)
     setMainPlatformHistory([])
     try {
-      const response = await fetch(`https://wagmicharge-backend.onrender.com/api/history?userAddress=${mainPlatformHistoryAddress}`)
+      const response = await fetch(
+        mainPlatformApiUrl(`history?userAddress=${encodeURIComponent(mainPlatformHistoryAddress)}`)
+      )
       
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`)
@@ -1097,6 +1100,8 @@ export default function ManageOrdersPage() {
                 <Label htmlFor="user-analytics-timeframe">Timeframe</Label>
                 <select
                   id="user-analytics-timeframe"
+                  aria-label="Analytics timeframe"
+                  title="Analytics timeframe"
                   value={userAnalyticsTimeframe}
                   onChange={(e) => setUserAnalyticsTimeframe(e.target.value)}
                   className="mt-1 w-full h-10 px-3 rounded-md border border-input bg-background text-sm"

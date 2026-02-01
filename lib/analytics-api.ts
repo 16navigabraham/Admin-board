@@ -2,10 +2,10 @@
  * Order Analytics API Client
  *
  * Provides typed functions for all order analytics endpoints
- * Base URL: process.env.NEXT_PUBLIC_BACKEND_API_URL
+ * Base URL: Uses mainPlatformFetch from mainPlatformApi.ts
  */
 
-const BASE_URL = process.env.NEXT_PUBLIC_BACKEND_API_URL
+import { mainPlatformFetch } from './mainPlatformApi'
 
 // ============== Type Definitions ==============
 
@@ -241,12 +241,7 @@ export async function fetchTimelineAnalytics(options: {
   if (options.chainId) params.append('chainId', options.chainId.toString())
   if (options.tokenAddress) params.append('tokenAddress', options.tokenAddress)
 
-  const response = await fetch(`${BASE_URL}/api/order-analytics/timeline?${params}`)
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({}))
-    throw new Error(error.error || `Failed to fetch timeline analytics: HTTP ${response.status}`)
-  }
-  return response.json()
+  return mainPlatformFetch<TimelineAnalyticsResponse>(`order-analytics/timeline?${params}`)
 }
 
 /**
@@ -262,12 +257,7 @@ export async function fetchTokenAnalytics(options: {
   if (options.chainId) params.append('chainId', options.chainId.toString())
   if (options.tokenAddress) params.append('tokenAddress', options.tokenAddress)
 
-  const response = await fetch(`${BASE_URL}/api/order-analytics/by-token?${params}`)
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({}))
-    throw new Error(error.error || `Failed to fetch token analytics: HTTP ${response.status}`)
-  }
-  return response.json()
+  return mainPlatformFetch<TokenAnalyticsResponse | SingleTokenAnalyticsResponse>(`order-analytics/by-token?${params}`)
 }
 
 /**
@@ -281,12 +271,7 @@ export async function fetchChainAnalytics(options: {
   if (options.range) params.append('range', options.range)
   if (options.chainId) params.append('chainId', options.chainId.toString())
 
-  const response = await fetch(`${BASE_URL}/api/order-analytics/by-chain?${params}`)
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({}))
-    throw new Error(error.error || `Failed to fetch chain analytics: HTTP ${response.status}`)
-  }
-  return response.json()
+  return mainPlatformFetch<ChainAnalyticsResponse | SingleChainAnalyticsResponse>(`order-analytics/by-chain?${params}`)
 }
 
 /**
@@ -305,12 +290,7 @@ export async function fetchUserAnalytics(
   if (options.chainId) params.append('chainId', options.chainId.toString())
   if (options.tokenAddress) params.append('tokenAddress', options.tokenAddress)
 
-  const response = await fetch(`${BASE_URL}/api/order-analytics/user/${userWallet}?${params}`)
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({}))
-    throw new Error(error.error || `Failed to fetch user analytics: HTTP ${response.status}`)
-  }
-  return response.json()
+  return mainPlatformFetch<UserAnalyticsResponse>(`order-analytics/user/${userWallet}?${params}`)
 }
 
 /**
@@ -328,12 +308,7 @@ export async function fetchUsersSummary(options: {
   if (options.page) params.append('page', options.page.toString())
   if (options.limit) params.append('limit', options.limit.toString())
 
-  const response = await fetch(`${BASE_URL}/api/order-analytics/users-summary?${params}`)
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({}))
-    throw new Error(error.error || `Failed to fetch users summary: HTTP ${response.status}`)
-  }
-  return response.json()
+  return mainPlatformFetch<UsersSummaryResponse>(`order-analytics/users-summary?${params}`)
 }
 
 /**
@@ -349,12 +324,7 @@ export async function fetchComprehensiveSummary(options: {
   if (options.chainId) params.append('chainId', options.chainId.toString())
   if (options.tokenAddress) params.append('tokenAddress', options.tokenAddress)
 
-  const response = await fetch(`${BASE_URL}/api/order-analytics/summary?${params}`)
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({}))
-    throw new Error(error.error || `Failed to fetch comprehensive summary: HTTP ${response.status}`)
-  }
-  return response.json()
+  return mainPlatformFetch<ComprehensiveSummaryResponse>(`order-analytics/summary?${params}`)
 }
 
 /**
@@ -365,12 +335,7 @@ export async function fetchRecentOrders(count: number = 10): Promise<{
   count: number
   requested: number
 }> {
-  const response = await fetch(`${BASE_URL}/api/orders/recent/${count}`)
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({}))
-    throw new Error(error.error || `Failed to fetch recent orders: HTTP ${response.status}`)
-  }
-  return response.json()
+  return mainPlatformFetch(`orders/recent/${count}`)
 }
 
 /**
@@ -400,12 +365,7 @@ export async function fetchOrders(options: {
   if (options.sort) params.append('sort', options.sort)
   if (options.order) params.append('order', options.order)
 
-  const response = await fetch(`${BASE_URL}/api/orders?${params}`)
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({}))
-    throw new Error(error.error || `Failed to fetch orders: HTTP ${response.status}`)
-  }
-  return response.json()
+  return mainPlatformFetch(`orders?${params}`)
 }
 
 /**
@@ -418,12 +378,7 @@ export async function fetchOrderById(
   const params = new URLSearchParams()
   if (chainId) params.append('chainId', chainId.toString())
 
-  const response = await fetch(`${BASE_URL}/api/orders/${orderId}?${params}`)
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({}))
-    throw new Error(error.error || `Failed to fetch order: HTTP ${response.status}`)
-  }
-  return response.json()
+  return mainPlatformFetch<OrderHistoryItem>(`orders/${orderId}?${params}`)
 }
 
 /**
@@ -443,12 +398,7 @@ export async function fetchOrdersByToken(
   if (options.page) params.append('page', options.page.toString())
   if (options.limit) params.append('limit', options.limit.toString())
 
-  const response = await fetch(`${BASE_URL}/api/orders/token/${tokenAddress}?${params}`)
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({}))
-    throw new Error(error.error || `Failed to fetch orders by token: HTTP ${response.status}`)
-  }
-  return response.json()
+  return mainPlatformFetch(`orders/token/${tokenAddress}?${params}`)
 }
 
 // ============== Helper Functions ==============
