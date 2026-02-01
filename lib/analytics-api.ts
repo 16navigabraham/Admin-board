@@ -461,3 +461,26 @@ export function formatNumber(num: number): string {
   }
   return num.toLocaleString()
 }
+
+/**
+ * Convert Naira amount to USD using live exchange rate
+ * @param nairaAmount - Amount in Naira
+ * @param ngnRate - NGN rate from API (1 USDT = X NGN)
+ */
+export function convertNairaToUSD(nairaAmount: number, ngnRate: number): number {
+  if (!ngnRate || ngnRate <= 0) {
+    console.warn('Invalid NGN rate, using fallback rate of 1600')
+    return nairaAmount / 1500
+  }
+  return nairaAmount / ngnRate
+}
+
+/**
+ * Convert and format Naira amount to USD display
+ * @param nairaAmount - Amount in Naira
+ * @param ngnRate - NGN rate from API (1 USDT = X NGN)
+ */
+export function formatNairaAsUSD(nairaAmount: number, ngnRate: number): string {
+  const usdAmount = convertNairaToUSD(nairaAmount, ngnRate)
+  return formatVolume(usdAmount)
+}

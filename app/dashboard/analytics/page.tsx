@@ -36,6 +36,7 @@ import {
   getChainIcon,
   formatVolume,
   formatNumber,
+  convertNairaToUSD,
   type ComprehensiveSummaryResponse,
   type ChainAnalyticsResponse,
   type TokenAnalyticsResponse,
@@ -53,6 +54,43 @@ const CHAIN_COLORS: Record<number, string> = {
   42220: '#EAB308' // Celo - Yellow
 }
 
+// Helper function to convert data from Naira to USD
+const convertDataToUSD = <T extends Record<string, any>>(data: T, rate: number): T => {
+  const converted: any = { ...data }
+  
+  // Convert common volume fields
+  if ('totalVolume' in converted && typeof converted.totalVolume === 'number') {
+    converted.totalVolume = convertNairaToUSD(converted.totalVolume, rate)
+  }
+  if ('averageAmount' in converted && typeof converted.averageAmount === 'number') {
+    converted.averageAmount = convertNairaToUSD(converted.averageAmount, rate)
+  }
+  if ('minAmount' in converted && typeof converted.minAmount === 'number') {
+    converted.minAmount = convertNairaToUSD(converted.minAmount, rate)
+  }
+  if ('maxAmount' in converted && typeof converted.maxAmount === 'number') {
+    converted.maxAmount = convertNairaToUSD(converted.maxAmount, rate)
+  }
+  
+  return converted as T
+}
+
+// Helper to recursively convert arrays and nested objects
+const convertArrayToUSD = <T extends Record<string, any>>(arr: T[], rate: number): T[] => {
+  return arr.map(item => {
+    const converted: any = convertDataToUSD(item, rate)
+    
+    // Handle nested arrays
+    Object.keys(converted).forEach(key => {
+      if (Array.isArray(converted[key])) {
+        converted[key] = convertArrayToUSD(converted[key], rate)
+      }
+    })
+    
+    return converted as T
+  })
+}
+
 export default function AnalyticsPage() {
   const { selectedChain, chainConfig } = useChain()
   const [timeframe, setTimeframe] = useState<string>("7d")
@@ -65,10 +103,27 @@ export default function AnalyticsPage() {
   const [tokenAnalytics, setTokenAnalytics] = useState<TokenAnalyticsResponse | null>(null)
   const [usersSummary, setUsersSummary] = useState<UsersSummaryResponse | null>(null)
   const [timeline, setTimeline] = useState<TimelineAnalyticsResponse | null>(null)
+  const [ngnExchangeRate, setNgnExchangeRate] = useState<number>(1600) // Default fallback rate
 
   // Pagination for users
   const [usersPage, setUsersPage] = useState(1)
   const usersLimit = 20
+
+  // Fetch exchange rate from API
+  const fetchExchangeRate = async () => {
+    try {
+      const response = await fetch('https://paycrypt-margin-price.onrender.com/api/v3/simple/price?ids=tether&vs_currencies=ngn,usd')
+      if (response.ok) {
+        const data = await response.json()
+        if (data.tether && data.tether.ngn) {
+          setNgnExchangeRate(data.tether.ngn)
+          console.log('💱 Exchange rate updated:', data.tether.ngn, 'NGN per USD')
+        }
+      }
+    } catch (error) {
+      console.warn('Failed to fetch exchange rate, using fallback:', error)
+    }
+  }
 
   const fetchAllAnalytics = async () => {
     setIsLoading(true)
@@ -84,11 +139,40 @@ export default function AnalyticsPage() {
         fetchTimelineAnalytics({ range: timeframe, interval: 'day', chainId })
       ])
 
-      setSummary(summaryData)
-      setChainAnalytics(chainData as ChainAnalyticsResponse)
-      setTokenAnalytics(tokenData)
-      setUsersSummary(usersData)
-      setTimeline(timelineData)
+      // Convert all amounts from Naira to USD using fetched exchange rate
+      const convertedSummary = {
+        ...summaryData,
+        summary: convertDataToUSD(summaryData.summary, ngnExchangeRate),
+        chainBreakdown: convertArrayToUSD(summaryData.chainBreakdown, ngnExchangeRate),
+        topTokens: convertArrayToUSD(summaryData.topTokens, ngnExchangeRate),
+        topUsers: convertArrayToUSD(summaryData.topUsers, ngnExchangeRate)
+      }
+
+      const convertedChainData = {
+        ...chainData,
+        chains: 'chains' in chainData ? convertArrayToUSD(chainData.chains, ngnExchangeRate) : []
+      }
+
+      const convertedTokenData = {
+        ...tokenData,
+        tokens: 'tokens' in tokenData ? convertArrayToUSD(tokenData.tokens, ngnExchangeRate) : []
+      }
+
+      const convertedUsersData = {
+        ...usersData,
+        users: convertArrayToUSD(usersData.users, ngnExchangeRate)
+      }
+
+      const convertedTimeline = {
+        ...timelineData,
+        timeline: convertArrayToUSD(timelineData.timeline, ngnExchangeRate)
+      }
+
+      setSummary(convertedSummary)
+      setChainAnalytics(convertedChainData as ChainAnalyticsResponse)
+      setTokenAnalytics(convertedTokenData)
+      setUsersSummary(convertedUsersData)
+      setTimeline(convertedTimeline)
 
       toast.success("Analytics data refreshed!")
     } catch (error: any) {
@@ -100,8 +184,12 @@ export default function AnalyticsPage() {
   }
 
   useEffect(() => {
+    fetchExchangeRate()
+  }, [])
+
+  useEffect(() => {
     fetchAllAnalytics()
-  }, [timeframe, showAllChains, selectedChain, usersPage])
+  }, [timeframe, showAllChains, selectedChain, usersPage, ngnExchangeRate])
 
   const handleCopy = (text: string, label: string) => {
     navigator.clipboard.writeText(text)
@@ -309,6 +397,9 @@ export default function AnalyticsPage() {
               Export Report
             </Button>
           </div>
+        </div>
+        <div className="text-xs text-muted-foreground">
+          💱 Exchange Rate: 1 USD = ₦{ngnExchangeRate.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
         </div>
       </div>
 

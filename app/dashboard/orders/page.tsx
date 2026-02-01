@@ -607,7 +607,7 @@ export default function ManageOrdersPage() {
                         rel="noopener noreferrer"
                         className="underline"
                       >
-                        {foundTxnByRequestId.txnHash.slice(0, 10)}...{foundTxnByRequestId.txnHash.slice(-8)}
+                        {foundTxnByRequestId.txnHash ? `${foundTxnByRequestId.txnHash.slice(0, 10)}...${foundTxnByRequestId.txnHash.slice(-8)}` : 'N/A'}
                       </a>
                     </p>
                     <p>
@@ -618,7 +618,7 @@ export default function ManageOrdersPage() {
                         rel="noopener noreferrer"
                         className="underline"
                       >
-                        {foundTxnByRequestId.userWallet.slice(0, 10)}...{foundTxnByRequestId.userWallet.slice(-8)}
+                        {foundTxnByRequestId.userWallet ? `${foundTxnByRequestId.userWallet.slice(0, 10)}...${foundTxnByRequestId.userWallet.slice(-8)}` : 'N/A'}
                       </a>
                     </p>
                     <p>
@@ -771,7 +771,7 @@ export default function ManageOrdersPage() {
                             <Tooltip>
                               <TooltipTrigger asChild>
                                 <span className="font-mono text-xs cursor-help">
-                                  {tx.requestId.length > 10 ? `${tx.requestId.slice(0, 10)}...` : tx.requestId}
+                                  {tx.requestId && tx.requestId.length > 10 ? `${tx.requestId.slice(0, 10)}...` : (tx.requestId || 'N/A')}
                                 </span>
                               </TooltipTrigger>
                               <TooltipContent>{tx.requestId}</TooltipContent>
@@ -791,7 +791,7 @@ export default function ManageOrdersPage() {
                                 rel="noopener noreferrer"
                                 className="underline"
                               >
-                                {tx.txnHash.slice(0, 6)}...{tx.txnHash.slice(-4)}
+                                {tx.txnHash ? `${tx.txnHash.slice(0, 6)}...${tx.txnHash.slice(-4)}` : 'N/A'}
                               </a>
                               <Tooltip>
                                 <TooltipTrigger asChild>
@@ -817,7 +817,7 @@ export default function ManageOrdersPage() {
                                 rel="noopener noreferrer"
                                 className="underline"
                               >
-                                {tx.userWallet.slice(0, 6)}...{tx.userWallet.slice(-4)}
+                                {tx.userWallet ? `${tx.userWallet.slice(0, 6)}...${tx.userWallet.slice(-4)}` : 'N/A'}
                               </a>
                               <Tooltip>
                                 <TooltipTrigger asChild>
@@ -843,7 +843,7 @@ export default function ManageOrdersPage() {
                                 rel="noopener noreferrer"
                                 className="underline"
                               >
-                                {tx.tokenAddress.slice(0, 6)}...{tx.tokenAddress.slice(-4)}
+                                {tx.tokenAddress ? `${tx.tokenAddress.slice(0, 6)}...${tx.tokenAddress.slice(-4)}` : 'N/A'}
                               </a>
                               <Tooltip>
                                 <TooltipTrigger asChild>
@@ -965,7 +965,7 @@ export default function ManageOrdersPage() {
                               <Tooltip>
                                 <TooltipTrigger asChild>
                                   <span className="font-mono text-xs cursor-help">
-                                    {order.requestId.length > 12 ? `${order.requestId.slice(0, 12)}...` : order.requestId}
+                                    {order.requestId && order.requestId.length > 12 ? `${order.requestId.slice(0, 12)}...` : (order.requestId || 'N/A')}
                                   </span>
                                 </TooltipTrigger>
                                 <TooltipContent>{order.requestId}</TooltipContent>
@@ -1000,7 +1000,7 @@ export default function ManageOrdersPage() {
                                 rel="noopener noreferrer"
                                 className="underline"
                               >
-                                {order.transactionHash.slice(0, 6)}...{order.transactionHash.slice(-4)}
+                                {order.transactionHash ? `${order.transactionHash.slice(0, 6)}...${order.transactionHash.slice(-4)}` : 'N/A'}
                               </a>
                               <Tooltip>
                                 <TooltipTrigger asChild>
@@ -1187,9 +1187,9 @@ export default function ManageOrdersPage() {
                     <h4 className="font-semibold mb-3">Token Breakdown (Top 5)</h4>
                     <div className="space-y-2">
                       {userAnalytics.tokenBreakdown.slice(0, 5).map((token) => (
-                        <div key={token.tokenAddress} className="flex items-center justify-between p-2 bg-muted rounded">
+                        <div key={token.tokenAddress || 'unknown'} className="flex items-center justify-between p-2 bg-muted rounded">
                           <span className="font-mono text-sm">
-                            {token.tokenAddress.slice(0, 8)}...{token.tokenAddress.slice(-6)}
+                            {token.tokenAddress ? `${token.tokenAddress.slice(0, 8)}...${token.tokenAddress.slice(-6)}` : 'N/A'}
                           </span>
                           <div className="text-right">
                             <span className="font-medium">{token.orderCount} orders</span>
