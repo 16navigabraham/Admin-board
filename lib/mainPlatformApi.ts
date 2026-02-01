@@ -1,7 +1,7 @@
 // Centralized main platform API configuration
 // Use NEXT_PUBLIC_MAIN_PLATFORM_API_BASE for client-side-configurable base URL
 // (Next.js replaces `process.env.*` at build time for front-end code)
-export const MAIN_PLATFORM_API_BASE = process.env.NEXT_PUBLIC_MAIN_PLATFORM_API_BASE ?? 'https://wagmicharge-backend.onrender.com/api/'
+export const MAIN_PLATFORM_API_BASE = process.env.NEXT_PUBLIC_MAIN_PLATFORM_API_BASE ?? 'https://paycrypt-admin-backend.onrender.com'
 
 /**
  * API Key for main platform (Paycrypt Admin API)

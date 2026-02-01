@@ -307,7 +307,7 @@ export default function ManageOrdersPage() {
     setMainPlatformHistory([])
     try {
       const response = await fetch(
-        mainPlatformApiUrl(`history?userAddress=${encodeURIComponent(mainPlatformHistoryAddress)}`)
+        mainPlatformApiUrl(`/api/history?userAddress=${encodeURIComponent(mainPlatformHistoryAddress)}`)
       )
       
       if (!response.ok) {

@@ -241,7 +241,7 @@ export async function fetchTimelineAnalytics(options: {
   if (options.chainId) params.append('chainId', options.chainId.toString())
   if (options.tokenAddress) params.append('tokenAddress', options.tokenAddress)
 
-  return mainPlatformFetch<TimelineAnalyticsResponse>(`order-analytics/timeline?${params}`)
+  return mainPlatformFetch<TimelineAnalyticsResponse>(`/api/order-analytics/timeline?${params}`)
 }
 
 /**
@@ -257,7 +257,7 @@ export async function fetchTokenAnalytics(options: {
   if (options.chainId) params.append('chainId', options.chainId.toString())
   if (options.tokenAddress) params.append('tokenAddress', options.tokenAddress)
 
-  return mainPlatformFetch<TokenAnalyticsResponse | SingleTokenAnalyticsResponse>(`order-analytics/by-token?${params}`)
+  return mainPlatformFetch<TokenAnalyticsResponse | SingleTokenAnalyticsResponse>(`/api/order-analytics/by-token?${params}`)
 }
 
 /**
@@ -271,7 +271,7 @@ export async function fetchChainAnalytics(options: {
   if (options.range) params.append('range', options.range)
   if (options.chainId) params.append('chainId', options.chainId.toString())
 
-  return mainPlatformFetch<ChainAnalyticsResponse | SingleChainAnalyticsResponse>(`order-analytics/by-chain?${params}`)
+  return mainPlatformFetch<ChainAnalyticsResponse | SingleChainAnalyticsResponse>(`/api/order-analytics/by-chain?${params}`)
 }
 
 /**
@@ -290,7 +290,7 @@ export async function fetchUserAnalytics(
   if (options.chainId) params.append('chainId', options.chainId.toString())
   if (options.tokenAddress) params.append('tokenAddress', options.tokenAddress)
 
-  return mainPlatformFetch<UserAnalyticsResponse>(`order-analytics/user/${userWallet}?${params}`)
+  return mainPlatformFetch<UserAnalyticsResponse>(`/api/order-analytics/user/${userWallet}?${params}`)
 }
 
 /**
@@ -308,7 +308,7 @@ export async function fetchUsersSummary(options: {
   if (options.page) params.append('page', options.page.toString())
   if (options.limit) params.append('limit', options.limit.toString())
 
-  return mainPlatformFetch<UsersSummaryResponse>(`order-analytics/users-summary?${params}`)
+  return mainPlatformFetch<UsersSummaryResponse>(`/api/order-analytics/users-summary?${params}`)
 }
 
 /**
@@ -324,7 +324,7 @@ export async function fetchComprehensiveSummary(options: {
   if (options.chainId) params.append('chainId', options.chainId.toString())
   if (options.tokenAddress) params.append('tokenAddress', options.tokenAddress)
 
-  return mainPlatformFetch<ComprehensiveSummaryResponse>(`order-analytics/summary?${params}`)
+  return mainPlatformFetch<ComprehensiveSummaryResponse>(`/api/order-analytics/summary?${params}`)
 }
 
 /**
@@ -335,7 +335,7 @@ export async function fetchRecentOrders(count: number = 10): Promise<{
   count: number
   requested: number
 }> {
-  return mainPlatformFetch(`orders/recent/${count}`)
+  return mainPlatformFetch(`/api/orders/recent/${count}`)
 }
 
 /**
@@ -365,7 +365,7 @@ export async function fetchOrders(options: {
   if (options.sort) params.append('sort', options.sort)
   if (options.order) params.append('order', options.order)
 
-  return mainPlatformFetch(`orders?${params}`)
+  return mainPlatformFetch(`/api/orders?${params}`)
 }
 
 /**
@@ -378,7 +378,7 @@ export async function fetchOrderById(
   const params = new URLSearchParams()
   if (chainId) params.append('chainId', chainId.toString())
 
-  return mainPlatformFetch<OrderHistoryItem>(`orders/${orderId}?${params}`)
+  return mainPlatformFetch<OrderHistoryItem>(`/api/orders/${orderId}?${params}`)
 }
 
 /**
@@ -398,7 +398,7 @@ export async function fetchOrdersByToken(
   if (options.page) params.append('page', options.page.toString())
   if (options.limit) params.append('limit', options.limit.toString())
 
-  return mainPlatformFetch(`orders/token/${tokenAddress}?${params}`)
+  return mainPlatformFetch(`/api/orders/token/${tokenAddress}?${params}`)
 }
 
 // ============== Helper Functions ==============
