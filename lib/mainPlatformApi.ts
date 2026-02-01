@@ -7,7 +7,7 @@ export const MAIN_PLATFORM_API_BASE = process.env.NEXT_PUBLIC_MAIN_PLATFORM_API_
  * API Key for main platform (Paycrypt Admin API)
  * Set NEXT_PUBLIC_PAYCRYPT_API_KEY in your environment
  */
-export const PAYCRYPT_API_KEY = process.env.NEXT_PUBLIC_PAYCRYPT_API_KEY 
+export const PAYCRYPT_API_KEY = process.env.NEXT_PUBLIC_PAYCRYPT_API_KEY
 
 /**
  * Build a full URL for the main platform API.

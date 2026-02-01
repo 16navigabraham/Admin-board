@@ -13,12 +13,12 @@ import { useWriteContract, useWaitForTransactionReceipt, useSwitchChain } from "
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Loader2, Copy, Search, Network, Download } from 'lucide-react'
 import { getUserHistory } from "@/lib/api"
-import { MAIN_PLATFORM_API_BASE, mainPlatformApiUrl } from "@/lib/mainPlatformApi"
+import { mainPlatformFetch } from "@/lib/mainPlatformApi"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { useChain } from "@/contexts/chain-context"
 import { Badge } from "@/components/ui/badge"
 import { exportOrdersToExcel, exportMainPlatformOrdersToExcel } from "@/lib/export-utils"
-import { fetchUserAnalytics, type UserAnalyticsResponse, getChainName as getAnalyticsChainName, getChainIcon, formatVolume } from "@/lib/analytics-api"
+import { fetchUserAnalytics, type UserAnalyticsResponse, getChainName as getAnalyticsChainName, getChainIcon, formatVolume, convertNairaToUSD } from "@/lib/analytics-api"
 
 // Define Lisk chain config (not in viem by default)
 const liskChain = {
@@ -97,6 +97,7 @@ export default function ManageOrdersPage() {
   const [isFetchingUserAnalytics, setIsFetchingUserAnalytics] = useState(false)
   const [userAnalyticsAddress, setUserAnalyticsAddress] = useState<string>("")
   const [userAnalyticsTimeframe, setUserAnalyticsTimeframe] = useState<string>("30d")
+  const [ngnExchangeRate, setNgnExchangeRate] = useState<number>(1600) // Default fallback rate
 
   const { data: hash, writeContract, isPending: isWriting, error: writeError } = useWriteContract()
 
@@ -306,15 +307,9 @@ export default function ManageOrdersPage() {
     setIsFetchingMainPlatformHistory(true)
     setMainPlatformHistory([])
     try {
-      const response = await fetch(
-        mainPlatformApiUrl(`/api/history?userAddress=${encodeURIComponent(mainPlatformHistoryAddress)}`)
+      const data = await mainPlatformFetch<{ success: boolean; orders: MainPlatformOrder[] }>(
+        `/api/history?userAddress=${encodeURIComponent(mainPlatformHistoryAddress)}`
       )
-      
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`)
-      }
-      
-      const data = await response.json()
       
       if (data.success && data.orders) {
         setMainPlatformHistory(data.orders)
@@ -467,10 +462,46 @@ export default function ManageOrdersPage() {
     setIsFetchingUserAnalytics(true)
     setUserAnalytics(null)
     try {
+      // Fetch exchange rate first
+      try {
+        const rateResponse = await fetch('https://paycrypt-margin-price.onrender.com/api/v3/simple/price?ids=tether&vs_currencies=ngn,usd')
+        if (rateResponse.ok) {
+          const rateData = await rateResponse.json()
+          if (rateData.tether && rateData.tether.ngn) {
+            setNgnExchangeRate(rateData.tether.ngn)
+          }
+        }
+      } catch (error) {
+        console.warn('Failed to fetch exchange rate, using fallback:', error)
+      }
+
       const data = await fetchUserAnalytics(userAnalyticsAddress, {
         range: userAnalyticsTimeframe
       })
-      setUserAnalytics(data)
+      
+      // Convert all Naira amounts to USD
+      const convertedData: UserAnalyticsResponse = {
+        ...data,
+        stats: {
+          ...data.stats,
+          totalVolume: convertNairaToUSD(data.stats.totalVolume, ngnExchangeRate),
+          averageAmount: convertNairaToUSD(data.stats.averageAmount, ngnExchangeRate)
+        },
+        chainBreakdown: data.chainBreakdown.map(chain => ({
+          ...chain,
+          totalVolume: convertNairaToUSD(chain.totalVolume, ngnExchangeRate)
+        })),
+        tokenBreakdown: data.tokenBreakdown.map(token => ({
+          ...token,
+          totalVolume: convertNairaToUSD(token.totalVolume, ngnExchangeRate)
+        })),
+        recentOrders: data.recentOrders.map(order => ({
+          ...order,
+          amount: convertNairaToUSD(order.amount, ngnExchangeRate)
+        }))
+      }
+      
+      setUserAnalytics(convertedData)
       toast.success("User analytics fetched successfully!")
     } catch (error: any) {
       console.error("Error fetching user analytics:", error)
