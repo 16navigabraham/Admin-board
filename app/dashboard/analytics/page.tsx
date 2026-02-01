@@ -737,7 +737,11 @@ export default function AnalyticsPage() {
                                 </div>
                               </TableCell>
                               <TableCell>
-                                <div className="text-xs">{user.tokensUsed?.join(', ') || 'N/A'}</div>
+                                <div className="text-xs">
+                                  {user.tokensUsed?.map(token => 
+                                    typeof token === 'string' ? token : (token as any)?.cryptoSymbol || (token as any)?.symbol || 'Unknown'
+                                  ).join(', ') || 'N/A'}
+                                </div>
                               </TableCell>
                               <TableCell className="text-right">{formatNumber(user.orderCount)}</TableCell>
                               <TableCell className="text-right">{formatVolume(user.totalVolume)}</TableCell>
@@ -844,7 +848,11 @@ export default function AnalyticsPage() {
                                 </div>
                               </TableCell>
                               <TableCell>
-                                <div className="text-xs">{user.tokensUsed?.join(', ') || 'N/A'}</div>
+                                <div className="text-xs">
+                                  {user.tokensUsed?.map(token => 
+                                    typeof token === 'string' ? token : (token as any)?.cryptoSymbol || (token as any)?.symbol || 'Unknown'
+                                  ).join(', ') || 'N/A'}
+                                </div>
                               </TableCell>
                               <TableCell className="text-right">{formatNumber(user.orderCount)}</TableCell>
                               <TableCell className="text-right">{formatVolume(user.totalVolume)}</TableCell>
