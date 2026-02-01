@@ -464,11 +464,11 @@ export default function AnalyticsPage() {
                     <CardContent>
                       <div className="space-y-3">
                         {summary.topTokens.slice(0, 5).map((token, index) => (
-                          <div key={token.tokenAddress} className="flex items-center justify-between">
+                          <div key={token.tokenAddress || index} className="flex items-center justify-between">
                             <div className="flex items-center gap-2">
                               <span className="text-sm font-medium text-muted-foreground">#{index + 1}</span>
                               <span className="font-mono text-sm truncate max-w-[200px]">
-                                {token.tokenAddress.slice(0, 8)}...{token.tokenAddress.slice(-6)}
+                                {token.tokenAddress ? `${token.tokenAddress.slice(0, 8)}...${token.tokenAddress.slice(-6)}` : 'N/A'}
                               </span>
                             </div>
                             <div className="text-right">
@@ -551,23 +551,25 @@ export default function AnalyticsPage() {
                       <TableBody>
                         <TooltipProvider delayDuration={0}>
                           {tokenAnalytics.tokens.map((token) => (
-                            <TableRow key={`${token.chainId}-${token.tokenAddress}`}>
+                            <TableRow key={`${token.chainId}-${token.tokenAddress || 'unknown'}`}>
                               <TableCell className="font-mono">
                                 <div className="flex items-center gap-2">
-                                  {token.tokenAddress.slice(0, 8)}...{token.tokenAddress.slice(-6)}
-                                  <Tooltip>
-                                    <TooltipTrigger asChild>
-                                      <Button
-                                        variant="ghost"
-                                        size="icon"
-                                        className="h-6 w-6"
-                                        onClick={() => handleCopy(token.tokenAddress, "Token Address")}
-                                      >
-                                        <Copy className="h-3 w-3" />
-                                      </Button>
-                                    </TooltipTrigger>
-                                    <TooltipContent>Copy address</TooltipContent>
-                                  </Tooltip>
+                                  {token.tokenAddress ? `${token.tokenAddress.slice(0, 8)}...${token.tokenAddress.slice(-6)}` : 'N/A'}
+                                  {token.tokenAddress && (
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <Button
+                                          variant="ghost"
+                                          size="icon"
+                                          className="h-6 w-6"
+                                          onClick={() => handleCopy(token.tokenAddress, "Token Address")}
+                                        >
+                                          <Copy className="h-3 w-3" />
+                                        </Button>
+                                      </TooltipTrigger>
+                                      <TooltipContent>Copy address</TooltipContent>
+                                    </Tooltip>
+                                  )}
                                 </div>
                               </TableCell>
                               <TableCell>
@@ -613,23 +615,25 @@ export default function AnalyticsPage() {
                       <TableBody>
                         <TooltipProvider delayDuration={0}>
                           {usersSummary.users.map((user) => (
-                            <TableRow key={user.userWallet}>
+                            <TableRow key={user.userWallet || 'unknown'}>
                               <TableCell className="font-mono">
                                 <div className="flex items-center gap-2">
-                                  {user.userWallet.slice(0, 8)}...{user.userWallet.slice(-6)}
-                                  <Tooltip>
-                                    <TooltipTrigger asChild>
-                                      <Button
-                                        variant="ghost"
-                                        size="icon"
-                                        className="h-6 w-6"
-                                        onClick={() => handleCopy(user.userWallet, "Wallet Address")}
-                                      >
-                                        <Copy className="h-3 w-3" />
-                                      </Button>
-                                    </TooltipTrigger>
-                                    <TooltipContent>Copy address</TooltipContent>
-                                  </Tooltip>
+                                  {user.userWallet ? `${user.userWallet.slice(0, 8)}...${user.userWallet.slice(-6)}` : 'N/A'}
+                                  {user.userWallet && (
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <Button
+                                          variant="ghost"
+                                          size="icon"
+                                          className="h-6 w-6"
+                                          onClick={() => handleCopy(user.userWallet, "Wallet Address")}
+                                        >
+                                          <Copy className="h-3 w-3" />
+                                        </Button>
+                                      </TooltipTrigger>
+                                      <TooltipContent>Copy address</TooltipContent>
+                                    </Tooltip>
+                                  )}
                                 </div>
                               </TableCell>
                               <TableCell className="text-right">{formatNumber(user.orderCount)}</TableCell>
@@ -703,24 +707,26 @@ export default function AnalyticsPage() {
                       <TableBody>
                         <TooltipProvider delayDuration={0}>
                           {summary.topUsers.map((user, index) => (
-                            <TableRow key={user.userWallet}>
+                            <TableRow key={user.userWallet || index}>
                               <TableCell className="font-medium">#{index + 1}</TableCell>
                               <TableCell className="font-mono">
                                 <div className="flex items-center gap-2">
-                                  {user.userWallet.slice(0, 8)}...{user.userWallet.slice(-6)}
-                                  <Tooltip>
-                                    <TooltipTrigger asChild>
-                                      <Button
-                                        variant="ghost"
-                                        size="icon"
-                                        className="h-6 w-6"
-                                        onClick={() => handleCopy(user.userWallet, "Wallet Address")}
-                                      >
-                                        <Copy className="h-3 w-3" />
-                                      </Button>
-                                    </TooltipTrigger>
-                                    <TooltipContent>Copy address</TooltipContent>
-                                  </Tooltip>
+                                  {user.userWallet ? `${user.userWallet.slice(0, 8)}...${user.userWallet.slice(-6)}` : 'N/A'}
+                                  {user.userWallet && (
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <Button
+                                          variant="ghost"
+                                          size="icon"
+                                          className="h-6 w-6"
+                                          onClick={() => handleCopy(user.userWallet, "Wallet Address")}
+                                        >
+                                          <Copy className="h-3 w-3" />
+                                        </Button>
+                                      </TooltipTrigger>
+                                      <TooltipContent>Copy address</TooltipContent>
+                                    </Tooltip>
+                                  )}
                                 </div>
                               </TableCell>
                               <TableCell className="text-right">{formatNumber(user.orderCount)}</TableCell>
