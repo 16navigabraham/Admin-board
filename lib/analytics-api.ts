@@ -9,16 +9,25 @@ import { mainPlatformFetch } from './mainPlatformApi'
 
 // ============== Type Definitions ==============
 
+// Order Schema from API
 export interface OrderHistoryItem {
-  orderId: string
-  requestId: string
-  userWallet: string
-  tokenAddress: string
-  amount: string // Amount in wei (BigInt string)
-  txnHash: string
-  blockNumber: number
-  timestamp: string // ISO 8601 timestamp
-  chainId: number // Chain ID (8453=Base, 1135=Lisk, 42220=Celo)
+  requestId: string // Unique order identifier
+  userAddress: string // User's wallet address (lowercase)
+  transactionHash: string // Blockchain transaction hash (lowercase)
+  serviceType: string // 'airtime' | 'electricity' | 'internet' | 'tv'
+  serviceID: string // e.g. 'mtn', 'eko-electric', 'dstv'
+  variationCode?: string // Plan type (not required for airtime)
+  customerIdentifier: string // Phone number / meter number / smartcard number
+  amountNaira: number // Amount in Nigerian Naira
+  cryptoUsed: number // Amount of crypto paid by user
+  cryptoSymbol: string // 'USDT' | 'USDC' | 'cUSD' | 'CELO' | 'SEND'
+  chainId: number // 8453 (Base) | 1135 (Lisk) | 42220 (Celo)
+  chainName: string // 'Base' | 'Lisk' | 'Celo'
+  onChainStatus: string // 'pending' | 'confirmed' | 'failed'
+  vtpassStatus: string // 'pending' | 'successful' | 'failed'
+  vtpassResponse?: object // Raw VTpass API response
+  createdAt: string // ISO 8601 timestamp
+  updatedAt: string // ISO 8601 timestamp
 }
 
 export interface PaginationInfo {
@@ -43,7 +52,7 @@ export interface TimelineAnalyticsResponse {
   interval: string
   filters: {
     chainId: number | 'all'
-    tokenAddress: string | 'all'
+    cryptoSymbol: string | 'all'
   }
   dataPoints: number
   timeline: TimelineDataPoint[]
@@ -51,8 +60,9 @@ export interface TimelineAnalyticsResponse {
 
 // Token Analytics Types
 export interface TokenStats {
-  tokenAddress: string
+  cryptoSymbol: string
   chainId: number
+  chainName: string
   orderCount: number
   totalVolume: number
   uniqueUsers: number
@@ -68,22 +78,31 @@ export interface TokenAnalyticsResponse {
 
 export interface SingleTokenAnalyticsResponse {
   range: string
-  tokenAddress: string
-  chainId: number
+  cryptoSymbol: string
   stats: {
     orderCount: number
     totalVolume: number
     uniqueUsers: number
+    uniqueChains: number
     averageAmount: number
     minAmount: number
     maxAmount: number
   }
+  chainBreakdown: {
+    chainId: number
+    chainName: string
+    orderCount: number
+    totalVolume: number
+  }[]
   recentOrders: {
     orderId: string
-    userWallet: string
+    userAddress: string
     amount: number
     timestamp: string
     transactionHash: string
+    chainId: number
+    chainName: string
+    cryptoSymbol: string
   }[]
 }
 
@@ -116,24 +135,29 @@ export interface SingleChainAnalyticsResponse {
     averageAmount: number
   }
   topTokens: {
-    tokenAddress: string
+    cryptoSymbol: string
+    chainId: number
+    chainName: string
     orderCount: number
     totalVolume: number
   }[]
   topUsers: {
-    userWallet: string
+    userAddress: string
+    chainId: number
+    chainName: string
     orderCount: number
     totalVolume: number
+    tokensUsed: string[]
   }[]
 }
 
 // User Analytics Types
 export interface UserAnalyticsResponse {
   range: string
-  userWallet: string
+  userAddress: string
   filters: {
     chainId: number | 'all'
-    tokenAddress: string | 'all'
+    cryptoSymbol: string | 'all'
   }
   stats: {
     orderCount: number
@@ -151,25 +175,33 @@ export interface UserAnalyticsResponse {
     totalVolume: number
   }[]
   tokenBreakdown: {
-    tokenAddress: string
+    cryptoSymbol: string
     orderCount: number
     totalVolume: number
   }[]
   recentOrders: {
     orderId: string
     chainId: number
-    tokenAddress: string
+    chainName: string
+    cryptoSymbol: string
     amount: number
     timestamp: string
     transactionHash: string
+    serviceType: string
   }[]
 }
 
 // Users Summary Types
 export interface UserSummaryItem {
-  userWallet: string
+  userAddress: string
   orderCount: number
   totalVolume: number
+  chainsUsed: {
+    chainId: number
+    chainName: string
+  }[]
+  tokensUsed: string[]
+  lastOrderAt: string
 }
 
 export interface UsersSummaryResponse {
@@ -192,24 +224,33 @@ export interface ChainBreakdownItem {
 }
 
 export interface TopTokenItem {
-  tokenAddress: string
+  cryptoSymbol: string
   orderCount: number
   totalVolume: number
   percentageOfTotal: string
+  chainsUsed: {
+    chainId: number
+    chainName: string
+  }[]
 }
 
 export interface TopUserItem {
-  userWallet: string
+  userAddress: string
   orderCount: number
   totalVolume: number
   percentageOfTotal: string
+  chainsUsed: {
+    chainId: number
+    chainName: string
+  }[]
+  tokensUsed: string[]
 }
 
 export interface ComprehensiveSummaryResponse {
   range: string
   filters: {
     chainId: number | 'all'
-    tokenAddress: string | 'all'
+    cryptoSymbol: string | 'all'
   }
   summary: {
     totalOrders: number
@@ -233,13 +274,13 @@ export async function fetchTimelineAnalytics(options: {
   range?: string
   interval?: 'hour' | 'day' | 'month'
   chainId?: number
-  tokenAddress?: string
+  serviceType?: string
 }): Promise<TimelineAnalyticsResponse> {
   const params = new URLSearchParams()
   if (options.range) params.append('range', options.range)
   if (options.interval) params.append('interval', options.interval)
   if (options.chainId) params.append('chainId', options.chainId.toString())
-  if (options.tokenAddress) params.append('tokenAddress', options.tokenAddress)
+  if (options.serviceType) params.append('serviceType', options.serviceType)
 
   return mainPlatformFetch<TimelineAnalyticsResponse>(`/api/order-analytics/timeline?${params}`)
 }
@@ -250,12 +291,12 @@ export async function fetchTimelineAnalytics(options: {
 export async function fetchTokenAnalytics(options: {
   range?: string
   chainId?: number
-  tokenAddress?: string
+  cryptoSymbol?: string
 }): Promise<TokenAnalyticsResponse | SingleTokenAnalyticsResponse> {
   const params = new URLSearchParams()
   if (options.range) params.append('range', options.range)
   if (options.chainId) params.append('chainId', options.chainId.toString())
-  if (options.tokenAddress) params.append('tokenAddress', options.tokenAddress)
+  if (options.cryptoSymbol) params.append('cryptoSymbol', options.cryptoSymbol)
 
   return mainPlatformFetch<TokenAnalyticsResponse | SingleTokenAnalyticsResponse>(`/api/order-analytics/by-token?${params}`)
 }
@@ -278,19 +319,19 @@ export async function fetchChainAnalytics(options: {
  * Fetch comprehensive user analytics
  */
 export async function fetchUserAnalytics(
-  userWallet: string,
+  userAddress: string,
   options: {
     range?: string
     chainId?: number
-    tokenAddress?: string
+    cryptoSymbol?: string
   } = {}
 ): Promise<UserAnalyticsResponse> {
   const params = new URLSearchParams()
   if (options.range) params.append('range', options.range)
   if (options.chainId) params.append('chainId', options.chainId.toString())
-  if (options.tokenAddress) params.append('tokenAddress', options.tokenAddress)
+  if (options.cryptoSymbol) params.append('cryptoSymbol', options.cryptoSymbol)
 
-  return mainPlatformFetch<UserAnalyticsResponse>(`/api/order-analytics/user/${userWallet}?${params}`)
+  return mainPlatformFetch<UserAnalyticsResponse>(`/api/order-analytics/user/${userAddress}?${params}`)
 }
 
 /**
@@ -317,12 +358,12 @@ export async function fetchUsersSummary(options: {
 export async function fetchComprehensiveSummary(options: {
   range?: string
   chainId?: number
-  tokenAddress?: string
+  cryptoSymbol?: string
 }): Promise<ComprehensiveSummaryResponse> {
   const params = new URLSearchParams()
   if (options.range) params.append('range', options.range)
   if (options.chainId) params.append('chainId', options.chainId.toString())
-  if (options.tokenAddress) params.append('tokenAddress', options.tokenAddress)
+  if (options.cryptoSymbol) params.append('cryptoSymbol', options.cryptoSymbol)
 
   return mainPlatformFetch<ComprehensiveSummaryResponse>(`/api/order-analytics/summary?${params}`)
 }
@@ -335,7 +376,7 @@ export async function fetchRecentOrders(count: number = 10): Promise<{
   count: number
   requested: number
 }> {
-  return mainPlatformFetch(`/api/orders/recent/${count}`)
+  return mainPlatformFetch(`/api/orders/recent?count=${count}`)
 }
 
 /**
@@ -381,25 +422,7 @@ export async function fetchOrderById(
   return mainPlatformFetch<OrderHistoryItem>(`/api/orders/${orderId}?${params}`)
 }
 
-/**
- * Fetch orders by token address
- */
-export async function fetchOrdersByToken(
-  tokenAddress: string,
-  options: {
-    page?: number
-    limit?: number
-  } = {}
-): Promise<{
-  orders: OrderHistoryItem[]
-  pagination: PaginationInfo
-}> {
-  const params = new URLSearchParams()
-  if (options.page) params.append('page', options.page.toString())
-  if (options.limit) params.append('limit', options.limit.toString())
 
-  return mainPlatformFetch(`/api/orders/token/${tokenAddress}?${params}`)
-}
 
 // ============== Helper Functions ==============
 

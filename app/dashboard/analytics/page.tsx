@@ -256,14 +256,16 @@ export default function AnalyticsPage() {
       if (summary.topTokens.length > 0) {
         const tokensSheet = workbook.addWorksheet('Top Tokens')
         tokensSheet.columns = [
-          { header: 'Token Address', key: 'address', width: 45 },
+          { header: 'Crypto Symbol', key: 'cryptoSymbol', width: 20 },
+          { header: 'Chains Used', key: 'chains', width: 30 },
           { header: 'Order Count', key: 'orderCount', width: 15 },
           { header: 'Total Volume (USD)', key: 'volume', width: 20 },
           { header: 'Percentage of Total', key: 'percentage', width: 20 }
         ]
         summary.topTokens.forEach(token => {
           tokensSheet.addRow({
-            address: token.tokenAddress,
+            cryptoSymbol: token.cryptoSymbol,
+            chains: token.chainsUsed?.map(c => c.chainName).join(', ') || 'N/A',
             orderCount: token.orderCount,
             volume: `$${token.totalVolume.toLocaleString()}`,
             percentage: `${token.percentageOfTotal}%`
@@ -277,13 +279,17 @@ export default function AnalyticsPage() {
         const usersSheet = workbook.addWorksheet('Top Users')
         usersSheet.columns = [
           { header: 'Wallet Address', key: 'wallet', width: 45 },
+          { header: 'Chains Used', key: 'chains', width: 30 },
+          { header: 'Tokens Used', key: 'tokens', width: 25 },
           { header: 'Order Count', key: 'orderCount', width: 15 },
           { header: 'Total Volume (USD)', key: 'volume', width: 20 },
           { header: 'Percentage of Total', key: 'percentage', width: 20 }
         ]
         summary.topUsers.forEach(user => {
           usersSheet.addRow({
-            wallet: user.userWallet,
+            wallet: user.userAddress,
+            chains: user.chainsUsed?.map(c => c.chainName).join(', ') || 'N/A',
+            tokens: user.tokensUsed?.join(', ') || 'N/A',
             orderCount: user.orderCount,
             volume: `$${user.totalVolume.toLocaleString()}`,
             percentage: `${user.percentageOfTotal}%`
@@ -322,13 +328,19 @@ export default function AnalyticsPage() {
         allUsersSheet.columns = [
           { header: 'Wallet Address', key: 'wallet', width: 45 },
           { header: 'Order Count', key: 'orderCount', width: 15 },
-          { header: 'Total Volume (USD)', key: 'volume', width: 20 }
+          { header: 'Total Volume (USD)', key: 'volume', width: 20 },
+          { header: 'Chains Used', key: 'chains', width: 30 },
+          { header: 'Tokens Used', key: 'tokens', width: 25 },
+          { header: 'Last Order', key: 'lastOrder', width: 20 }
         ]
         usersSummary.users.forEach(user => {
           allUsersSheet.addRow({
-            wallet: user.userWallet,
+            wallet: user.userAddress,
             orderCount: user.orderCount,
-            volume: `$${user.totalVolume.toLocaleString()}`
+            volume: `$${user.totalVolume.toLocaleString()}`,
+            chains: user.chainsUsed?.map(c => c.chainName).join(', ') || 'N/A',
+            tokens: user.tokensUsed?.join(', ') || 'N/A',
+            lastOrder: new Date(user.lastOrderAt).toLocaleString()
           })
         })
         styleHeader(allUsersSheet)
@@ -555,12 +567,15 @@ export default function AnalyticsPage() {
                     <CardContent>
                       <div className="space-y-3">
                         {summary.topTokens.slice(0, 5).map((token, index) => (
-                          <div key={token.tokenAddress || index} className="flex items-center justify-between">
-                            <div className="flex items-center gap-2">
+                          <div key={token.cryptoSymbol || index} className="flex items-center justify-between">
+                            <div className="flex items-center gap-3">
                               <span className="text-sm font-medium text-muted-foreground">#{index + 1}</span>
-                              <span className="font-mono text-sm truncate max-w-[200px]">
-                                {token.tokenAddress ? `${token.tokenAddress.slice(0, 8)}...${token.tokenAddress.slice(-6)}` : 'N/A'}
-                              </span>
+                              <div>
+                                <div className="font-semibold text-lg">{token.cryptoSymbol}</div>
+                                <div className="text-xs text-muted-foreground">
+                                  {token.chainsUsed?.map(c => c.chainName).join(', ') || 'All chains'}
+                                </div>
+                              </div>
                             </div>
                             <div className="text-right">
                               <div className="font-medium">{formatVolume(token.totalVolume)}</div>
@@ -631,7 +646,7 @@ export default function AnalyticsPage() {
                     <Table>
                       <TableHeader>
                         <TableRow>
-                          <TableHead>Token Address</TableHead>
+                          <TableHead>Crypto Symbol</TableHead>
                           <TableHead>Chain</TableHead>
                           <TableHead className="text-right">Orders</TableHead>
                           <TableHead className="text-right">Volume</TableHead>
@@ -642,31 +657,14 @@ export default function AnalyticsPage() {
                       <TableBody>
                         <TooltipProvider delayDuration={0}>
                           {tokenAnalytics.tokens.map((token) => (
-                            <TableRow key={`${token.chainId}-${token.tokenAddress || 'unknown'}`}>
-                              <TableCell className="font-mono">
-                                <div className="flex items-center gap-2">
-                                  {token.tokenAddress ? `${token.tokenAddress.slice(0, 8)}...${token.tokenAddress.slice(-6)}` : 'N/A'}
-                                  {token.tokenAddress && (
-                                    <Tooltip>
-                                      <TooltipTrigger asChild>
-                                        <Button
-                                          variant="ghost"
-                                          size="icon"
-                                          className="h-6 w-6"
-                                          onClick={() => handleCopy(token.tokenAddress, "Token Address")}
-                                        >
-                                          <Copy className="h-3 w-3" />
-                                        </Button>
-                                      </TooltipTrigger>
-                                      <TooltipContent>Copy address</TooltipContent>
-                                    </Tooltip>
-                                  )}
-                                </div>
+                            <TableRow key={`${token.chainId}-${token.cryptoSymbol}`}>
+                              <TableCell className="font-semibold text-base">
+                                {token.cryptoSymbol}
                               </TableCell>
                               <TableCell>
                                 <Badge variant="outline" className="flex items-center gap-1 w-fit">
                                   <span>{getChainIcon(token.chainId)}</span>
-                                  {getChainName(token.chainId)}
+                                  {token.chainName}
                                 </Badge>
                               </TableCell>
                               <TableCell className="text-right">{formatNumber(token.orderCount)}</TableCell>
@@ -698,6 +696,8 @@ export default function AnalyticsPage() {
                       <TableHeader>
                         <TableRow>
                           <TableHead>Wallet Address</TableHead>
+                          <TableHead>Chains</TableHead>
+                          <TableHead>Tokens</TableHead>
                           <TableHead className="text-right">Orders</TableHead>
                           <TableHead className="text-right">Total Volume</TableHead>
                           <TableHead>Actions</TableHead>
@@ -706,18 +706,18 @@ export default function AnalyticsPage() {
                       <TableBody>
                         <TooltipProvider delayDuration={0}>
                           {usersSummary.users.map((user) => (
-                            <TableRow key={user.userWallet || 'unknown'}>
+                            <TableRow key={user.userAddress}>
                               <TableCell className="font-mono">
                                 <div className="flex items-center gap-2">
-                                  {user.userWallet ? `${user.userWallet.slice(0, 8)}...${user.userWallet.slice(-6)}` : 'N/A'}
-                                  {user.userWallet && (
+                                  {user.userAddress ? `${user.userAddress.slice(0, 8)}...${user.userAddress.slice(-6)}` : 'N/A'}
+                                  {user.userAddress && (
                                     <Tooltip>
                                       <TooltipTrigger asChild>
                                         <Button
                                           variant="ghost"
                                           size="icon"
                                           className="h-6 w-6"
-                                          onClick={() => handleCopy(user.userWallet, "Wallet Address")}
+                                          onClick={() => handleCopy(user.userAddress, "Wallet Address")}
                                         >
                                           <Copy className="h-3 w-3" />
                                         </Button>
@@ -727,11 +727,23 @@ export default function AnalyticsPage() {
                                   )}
                                 </div>
                               </TableCell>
+                              <TableCell>
+                                <div className="flex gap-1">
+                                  {user.chainsUsed?.map(chain => (
+                                    <Badge key={chain.chainId} variant="outline" className="text-xs">
+                                      {getChainIcon(chain.chainId)}
+                                    </Badge>
+                                  ))}
+                                </div>
+                              </TableCell>
+                              <TableCell>
+                                <div className="text-xs">{user.tokensUsed?.join(', ') || 'N/A'}</div>
+                              </TableCell>
                               <TableCell className="text-right">{formatNumber(user.orderCount)}</TableCell>
                               <TableCell className="text-right">{formatVolume(user.totalVolume)}</TableCell>
                               <TableCell>
                                 <Button variant="outline" size="sm" asChild>
-                                  <a href={`/dashboard/orders?address=${user.userWallet}`}>
+                                  <a href={`/dashboard/orders?address=${user.userAddress}`}>
                                     View Orders
                                   </a>
                                 </Button>
@@ -790,6 +802,8 @@ export default function AnalyticsPage() {
                         <TableRow>
                           <TableHead>Rank</TableHead>
                           <TableHead>Wallet Address</TableHead>
+                          <TableHead>Chains</TableHead>
+                          <TableHead>Tokens</TableHead>
                           <TableHead className="text-right">Orders</TableHead>
                           <TableHead className="text-right">Volume</TableHead>
                           <TableHead className="text-right">% of Total</TableHead>
@@ -798,19 +812,19 @@ export default function AnalyticsPage() {
                       <TableBody>
                         <TooltipProvider delayDuration={0}>
                           {summary.topUsers.map((user, index) => (
-                            <TableRow key={user.userWallet || index}>
+                            <TableRow key={user.userAddress || index}>
                               <TableCell className="font-medium">#{index + 1}</TableCell>
                               <TableCell className="font-mono">
                                 <div className="flex items-center gap-2">
-                                  {user.userWallet ? `${user.userWallet.slice(0, 8)}...${user.userWallet.slice(-6)}` : 'N/A'}
-                                  {user.userWallet && (
+                                  {user.userAddress ? `${user.userAddress.slice(0, 8)}...${user.userAddress.slice(-6)}` : 'N/A'}
+                                  {user.userAddress && (
                                     <Tooltip>
                                       <TooltipTrigger asChild>
                                         <Button
                                           variant="ghost"
                                           size="icon"
                                           className="h-6 w-6"
-                                          onClick={() => handleCopy(user.userWallet, "Wallet Address")}
+                                          onClick={() => handleCopy(user.userAddress, "Wallet Address")}
                                         >
                                           <Copy className="h-3 w-3" />
                                         </Button>
@@ -819,6 +833,18 @@ export default function AnalyticsPage() {
                                     </Tooltip>
                                   )}
                                 </div>
+                              </TableCell>
+                              <TableCell>
+                                <div className="flex gap-1">
+                                  {user.chainsUsed?.map(chain => (
+                                    <Badge key={chain.chainId} variant="outline" className="text-xs">
+                                      {getChainIcon(chain.chainId)}
+                                    </Badge>
+                                  ))}
+                                </div>
+                              </TableCell>
+                              <TableCell>
+                                <div className="text-xs">{user.tokensUsed?.join(', ') || 'N/A'}</div>
                               </TableCell>
                               <TableCell className="text-right">{formatNumber(user.orderCount)}</TableCell>
                               <TableCell className="text-right">{formatVolume(user.totalVolume)}</TableCell>

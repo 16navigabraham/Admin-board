@@ -53,23 +53,26 @@ interface OrderHistoryItem {
   chainName?: string // Human-readable chain name (Base, Lisk, Celo)
 }
 
-// Interface for main platform database orders
+// Interface for main platform database orders - matching API documentation
 interface MainPlatformOrder {
-  _id: string
+  _id?: string // MongoDB document ID
   requestId: string
   userAddress: string
   transactionHash: string
-  serviceType: string
+  serviceType: string // 'airtime' | 'electricity' | 'internet' | 'tv'
   serviceID: string
+  variationCode?: string
   customerIdentifier: string
   amountNaira: number
   cryptoUsed: number
-  cryptoSymbol: string
+  cryptoSymbol: string // 'USDT' | 'USDC' | 'cUSD' | 'CELO' | 'SEND'
+  chainId: number
+  chainName: string
   onChainStatus: string
   vtpassStatus: string
+  vtpassResponse?: object
   createdAt: string
   updatedAt: string
-  chainName?: string // Human-readable chain name (Base, Lisk, Celo)
 }
 
 export default function ManageOrdersPage() {
@@ -990,7 +993,7 @@ export default function ManageOrdersPage() {
                         const chainName = order.chainName || 'Unknown'
                         const chainIcon = chainName === 'Base' ? '🔵' : chainName === 'Lisk' ? '🟣' : chainName === 'Celo' ? '🟡' : '⚪'
                         return (
-                        <TableRow key={order._id}>
+                        <TableRow key={order._id || order.requestId}>
                           <TableCell>
                             <div className="flex items-center gap-2">
                               <Tooltip>
@@ -1215,12 +1218,12 @@ export default function ManageOrdersPage() {
                 {/* Token Breakdown */}
                 {userAnalytics.tokenBreakdown.length > 0 && (
                   <div className="border rounded-md p-4">
-                    <h4 className="font-semibold mb-3">Token Breakdown (Top 5)</h4>
+                    <h4 className="font-semibold mb-3">Token Breakdown</h4>
                     <div className="space-y-2">
-                      {userAnalytics.tokenBreakdown.slice(0, 5).map((token) => (
-                        <div key={token.tokenAddress || 'unknown'} className="flex items-center justify-between p-2 bg-muted rounded">
-                          <span className="font-mono text-sm">
-                            {token.tokenAddress ? `${token.tokenAddress.slice(0, 8)}...${token.tokenAddress.slice(-6)}` : 'N/A'}
+                      {userAnalytics.tokenBreakdown.map((token) => (
+                        <div key={token.cryptoSymbol} className="flex items-center justify-between p-2 bg-muted rounded">
+                          <span className="font-semibold text-lg">
+                            {token.cryptoSymbol}
                           </span>
                           <div className="text-right">
                             <span className="font-medium">{token.orderCount} orders</span>
@@ -1241,6 +1244,8 @@ export default function ManageOrdersPage() {
                         <TableRow>
                           <TableHead>Order ID</TableHead>
                           <TableHead>Chain</TableHead>
+                          <TableHead>Token</TableHead>
+                          <TableHead>Service</TableHead>
                           <TableHead>Amount</TableHead>
                           <TableHead>Timestamp</TableHead>
                         </TableRow>
@@ -1248,13 +1253,15 @@ export default function ManageOrdersPage() {
                       <TableBody>
                         {userAnalytics.recentOrders.slice(0, 10).map((order) => (
                           <TableRow key={order.orderId}>
-                            <TableCell className="font-mono">{order.orderId}</TableCell>
+                            <TableCell className="font-mono text-xs">{order.orderId}</TableCell>
                             <TableCell>
                               <Badge variant="outline" className="flex items-center gap-1 w-fit">
                                 <span>{getChainIcon(order.chainId)}</span>
-                                {getAnalyticsChainName(order.chainId)}
+                                {order.chainName}
                               </Badge>
                             </TableCell>
+                            <TableCell className="font-medium">{order.cryptoSymbol}</TableCell>
+                            <TableCell className="capitalize">{order.serviceType}</TableCell>
                             <TableCell>${order.amount.toFixed(2)}</TableCell>
                             <TableCell>{new Date(order.timestamp).toLocaleString()}</TableCell>
                           </TableRow>
