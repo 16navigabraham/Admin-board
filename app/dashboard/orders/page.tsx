@@ -39,18 +39,33 @@ interface DecodedTxnData {
   args: any[]
 }
 
-// Updated interface to match the backend's 'Order' structure from /api/orders/user/:userWallet
+// Updated interface to match the blockchain indexer API response from /api/orders/user/:userWallet
 interface OrderHistoryItem {
-  orderId: string // This is the actual on-chain order ID
-  requestId: string
-  userWallet: string
-  tokenAddress: string
-  amount: string // This is a string representing a BigInt (wei)
-  txnHash: string
-  blockNumber: number
-  timestamp: string // ISO string from backend
+  _id: string // MongoDB document ID
+  orderId: string // Unique order identifier
   chainId: number // Chain ID (8453=Base, 1135=Lisk, 42220=Celo)
-  chainName?: string // Human-readable chain name (Base, Lisk, Celo)
+  requestId: string // Request identifier
+  userWallet: string // User's wallet address (lowercase)
+  tokenAddress: string // Token contract address (lowercase)
+  amount: string // Order amount in wei (raw token units)
+  txnHash: string // Transaction hash (lowercase)
+  blockNumber: number // Block number where transaction was included
+  timestamp: string // ISO 8601 timestamp of the order
+  createdAt: string // ISO 8601 timestamp when record was created
+  updatedAt: string // ISO 8601 timestamp when record was last updated
+  formattedAmount?: number // Human-readable amount (divided by 10^18)
+  chainName?: string // Human-readable chain name (Base, Lisk, Celo) - added for display
+}
+
+interface BlockchainHistoryResponse {
+  userWallet: string
+  orders: OrderHistoryItem[]
+  pagination: {
+    page: number
+    limit: number
+    total: number
+    pages: number
+  }
 }
 
 // Interface for main platform database orders - matching API documentation
@@ -81,9 +96,12 @@ export default function ManageOrdersPage() {
   const [decodedData, setDecodedData] = useState<DecodedTxnData | null>(null)
   const [orderIdToProcess, setOrderIdToProcess] = useState<string>("")
   const [transactionHistory, setTransactionHistory] = useState<OrderHistoryItem[]>([]) // Changed type
+  const [transactionPagination, setTransactionPagination] = useState<{ page: number; limit: number; total: number; pages: number } | null>(null)
   const [isDecoding, setIsDecoding] = useState(false)
   const [isFetchingHistory, setIsFetchingHistory] = useState(false)
   const [historyAddress, setHistoryAddress] = useState<string>("")
+  const [historyPage, setHistoryPage] = useState<number>(1)
+  const [historyLimit, setHistoryLimit] = useState<number>(50)
 
   // New state for main platform history
   const [mainPlatformHistory, setMainPlatformHistory] = useState<MainPlatformOrder[]>([])
@@ -279,20 +297,22 @@ export default function ManageOrdersPage() {
       return
     }
     setIsFetchingHistory(true)
-    setTransactionHistory([])
     try {
-      const rawData: OrderHistoryItem[] = await getUserHistory(historyAddress) // rawData is now the 'orders' array
+      const response: BlockchainHistoryResponse = await getUserHistory(historyAddress, historyPage, historyLimit)
       
-      const processedHistory = rawData.map((tx) => ({
+      const processedHistory = response.orders.map((tx) => ({
         ...tx,
-        // Format amount from wei string to readable number (assuming 18 decimals for tokens)
-        amount: formatUnits(BigInt(tx.amount), 18),
-        // Format timestamp from ISO string to local date/time string
+        // formattedAmount is already provided by the API, but we can recalculate if needed
+        formattedAmount: tx.formattedAmount || parseFloat(formatUnits(BigInt(tx.amount), 18)),
+        // Format timestamp from ISO string to local date/time string for display
         timestamp: new Date(tx.timestamp).toLocaleString(),
+        // Add human-readable chain name
+        chainName: tx.chainId === 8453 ? 'Base' : tx.chainId === 1135 ? 'Lisk' : tx.chainId === 42220 ? 'Celo' : 'Unknown'
       }))
 
       setTransactionHistory(processedHistory)
-      toast.success("Transaction history fetched successfully!")
+      setTransactionPagination(response.pagination)
+      toast.success(`Fetched ${response.orders.length} orders (Page ${response.pagination.page} of ${response.pagination.pages})`)
     } catch (error: any) {
       console.error("Error fetching transaction history:", error)
       toast.error(`Failed to fetch transaction history: ${error.message || error}`)
@@ -739,9 +759,9 @@ export default function ManageOrdersPage() {
 
       <Card className="mb-6">
         <CardHeader>
-          <CardTitle>Transaction History (User Specific - Database)</CardTitle>
+          <CardTitle>Transaction History (User Specific txn Onchain)</CardTitle>
           <CardDescription>
-            Displays application-level orders for a specific user, fetched from the backend database.
+            Displays application-level orders for a specific user, fetched from the onchain database.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -777,6 +797,41 @@ export default function ManageOrdersPage() {
                 </Button>
               )}
             </div>
+            
+            {/* Pagination Controls */}
+            {transactionPagination && transactionPagination.total > 0 && (
+              <div className="flex items-center justify-between mt-2 p-3 border rounded-md bg-muted">
+                <div className="text-sm text-muted-foreground">
+                  Showing {transactionHistory.length} of {transactionPagination.total} orders
+                  (Page {transactionPagination.page} of {transactionPagination.pages})
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setHistoryPage(p => Math.max(1, p - 1))
+                      setTimeout(handleFetchTransactionHistory, 100)
+                    }}
+                    disabled={transactionPagination.page === 1 || isFetchingHistory}
+                  >
+                    Previous
+                  </Button>
+                  <span className="text-sm px-2">Page {historyPage}</span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setHistoryPage(p => p + 1)
+                      setTimeout(handleFetchTransactionHistory, 100)
+                    }}
+                    disabled={transactionPagination.page >= transactionPagination.pages || isFetchingHistory}
+                  >
+                    Next
+                  </Button>
+                </div>
+              </div>
+            )}
             {transactionHistory.length > 0 && (
               <div className="mt-4 border rounded-md overflow-hidden">
                 <Table>
@@ -895,7 +950,7 @@ export default function ManageOrdersPage() {
                               </Tooltip>
                             </div>
                           </TableCell>
-                          <TableCell>{tx.amount}</TableCell>
+                          <TableCell>{tx.formattedAmount?.toFixed(6) || formatUnits(BigInt(tx.amount), 18)}</TableCell>
                           <TableCell>{tx.timestamp}</TableCell>
                           <TableCell>
                             {tx.orderId && (
